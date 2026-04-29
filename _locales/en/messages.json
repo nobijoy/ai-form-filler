@@ -1,0 +1,118 @@
+{
+  "extName": {
+    "message": "AI Form Filler",
+    "description": "Extension name"
+  },
+  "extDescription": {
+    "message": "Context-aware form filling with local heuristics and optional AI (BYOK).",
+    "description": "Extension description"
+  },
+  "actionTitle": {
+    "message": "AI Form Filler",
+    "description": "Browser action tooltip"
+  },
+  "commandFill": {
+    "message": "Fill visible form",
+    "description": "Keyboard command"
+  },
+  "popupTitle": {
+    "message": "AI Form Filler",
+    "description": "Popup heading"
+  },
+  "labelApiKey": {
+    "message": "API key",
+    "description": "Settings label"
+  },
+  "labelRememberKey": {
+    "message": "Remember key across browser restarts",
+    "description": "Checkbox"
+  },
+  "labelBaseUrl": {
+    "message": "API base URL",
+    "description": "OpenAI-compatible base"
+  },
+  "labelModel": {
+    "message": "Model",
+    "description": "Model id"
+  },
+  "labelFillMode": {
+    "message": "Fill mode",
+    "description": "Hybrid / AI / Heuristics"
+  },
+  "modeHybrid": {
+    "message": "Hybrid (heuristics + AI)",
+    "description": "Option"
+  },
+  "modeAiOnly": {
+    "message": "AI only",
+    "description": "Option"
+  },
+  "modeHeuristicsOnly": {
+    "message": "Heuristics only",
+    "description": "Option"
+  },
+  "labelFillLanguage": {
+    "message": "Fill language",
+    "description": "Auto or override"
+  },
+  "fillLangAuto": {
+    "message": "Auto (from page)",
+    "description": "Option"
+  },
+  "fillLangOverride": {
+    "message": "Override locale",
+    "description": "Option"
+  },
+  "labelLocaleOverride": {
+    "message": "Locale (BCP-47)",
+    "description": "e.g. en-US"
+  },
+  "labelPersona": {
+    "message": "Persona JSON (optional)",
+    "description": "Persona"
+  },
+  "labelMaxRounds": {
+    "message": "Max rounds",
+    "description": "Conditional fill"
+  },
+  "labelSettleMs": {
+    "message": "Settle delay (ms)",
+    "description": "After apply"
+  },
+  "labelFillEmptyOnly": {
+    "message": "Fill empty fields only",
+    "description": "Checkbox"
+  },
+  "btnSave": {
+    "message": "Save settings",
+    "description": "Button"
+  },
+  "btnClearKey": {
+    "message": "Clear API key",
+    "description": "Button"
+  },
+  "btnFill": {
+    "message": "Fill this tab",
+    "description": "Button"
+  },
+  "statusIdle": {
+    "message": "Ready.",
+    "description": "Status"
+  },
+  "statusNoTab": {
+    "message": "No active tab.",
+    "description": "Error"
+  },
+  "statusSent": {
+    "message": "Fill command sent.",
+    "description": "Success"
+  },
+  "errGeneric": {
+    "message": "Something went wrong.",
+    "description": "Error"
+  },
+  "keyHint": {
+    "message": "Keys stay in extension storage (local or session). Never sent to web pages. Lock your device—anyone with this profile can use a stored key.",
+    "description": "Security hint under title"
+  }
+}

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Form Filler</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1 class="title" id="heading"></h1>
+      <p class="hint" id="keyHint"></p>
+
+      <label class="lbl" for="apiKey" id="lblApiKey"></label>
+      <input id="apiKey" type="password" class="inp" autocomplete="off" />
+
+      <label class="chk"
+        ><input type="checkbox" id="rememberKey" /> <span id="lblRemember"></span
+      ></label>
+
+      <label class="lbl" for="baseUrl" id="lblBaseUrl"></label>
+      <input id="baseUrl" type="text" class="inp" />
+
+      <label class="lbl" for="model" id="lblModel"></label>
+      <input id="model" type="text" class="inp" />
+
+      <label class="lbl" for="fillMode" id="lblFillMode"></label>
+      <select id="fillMode" class="inp">
+        <option value="hybrid" id="optHybrid"></option>
+        <option value="ai_only" id="optAi"></option>
+        <option value="heuristics_only" id="optHeur"></option>
+      </select>
+
+      <label class="lbl" for="fillLanguage" id="lblFillLang"></label>
+      <select id="fillLanguage" class="inp">
+        <option value="auto" id="optLangAuto"></option>
+        <option value="override" id="optLangOverride"></option>
+      </select>
+
+      <label class="lbl" for="localeOverride" id="lblLocaleOverride"></label>
+      <input id="localeOverride" type="text" class="inp" />
+
+      <label class="lbl" for="persona" id="lblPersona"></label>
+      <textarea id="persona" class="inp ta" rows="3"></textarea>
+
+      <label class="lbl" for="maxRounds" id="lblMaxRounds"></label>
+      <input id="maxRounds" type="number" class="inp sm" min="1" max="20" />
+
+      <label class="lbl" for="settleMs" id="lblSettle"></label>
+      <input id="settleMs" type="number" class="inp sm" min="0" max="2000" step="10" />
+
+      <label class="chk"
+        ><input type="checkbox" id="fillEmptyOnly" /> <span id="lblFillEmpty"></span
+      ></label>
+
+      <div class="row">
+        <button type="button" id="btnSave" class="btn primary"></button>
+        <button type="button" id="btnClearKey" class="btn"></button>
+      </div>
+      <button type="button" id="btnFill" class="btn fill"></button>
+      <p id="status" class="status" role="status"></p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

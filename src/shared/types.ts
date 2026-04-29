@@ -1,0 +1,79 @@
+export type FillMode = "hybrid" | "ai_only" | "heuristics_only";
+
+export type FillLanguagePolicy = "auto" | "override";
+
+export interface ExtensionSettings {
+  baseUrl: string;
+  model: string;
+  fillMode: FillMode;
+  fillLanguage: FillLanguagePolicy;
+  fillLocaleOverride: string;
+  personaJson: string;
+  maxRounds: number;
+  settleMs: number;
+  fillEmptyOnly: boolean;
+  rememberKeyAcrossRestarts: boolean;
+}
+
+export const DEFAULT_SETTINGS: ExtensionSettings = {
+  baseUrl: "https://api.openai.com/v1",
+  model: "gpt-4o-mini",
+  fillMode: "hybrid",
+  fillLanguage: "auto",
+  fillLocaleOverride: "en-US",
+  personaJson: "",
+  maxRounds: 5,
+  settleMs: 100,
+  fillEmptyOnly: true,
+  rememberKeyAcrossRestarts: true,
+};
+
+export interface FieldOption {
+  value: string;
+  label: string;
+}
+
+export interface FieldDescriptor {
+  syntheticId: string;
+  tag: "input" | "textarea" | "select";
+  inputType?: string;
+  name?: string;
+  id?: string;
+  placeholder?: string;
+  required?: boolean;
+  pattern?: string;
+  maxLength?: number;
+  autoComplete?: string;
+  ariaLabel?: string;
+  labelText?: string;
+  options?: FieldOption[];
+  radioGroup?: string;
+  radioChoices?: FieldOption[];
+  currentValue: string;
+  disabled: boolean;
+  visible: boolean;
+  fieldLocale?: string;
+}
+
+export interface FillSnapshot {
+  pageTitle: string;
+  pageUrl: string;
+  documentLocale: string;
+  fillLocale: string;
+  roundIndex: number;
+  maxRounds: number;
+  fields: FieldDescriptor[];
+  heuristicSummary?: { syntheticId: string; value: string }[];
+}
+
+export interface LlmFillRequest {
+  type: "LLM_FILL";
+  snapshot: FillSnapshot;
+}
+
+export interface LlmFillResponse {
+  ok: boolean;
+  values?: Record<string, string>;
+  error?: string;
+  skipped?: boolean;
+}

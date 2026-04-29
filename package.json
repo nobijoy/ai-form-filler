@@ -1,0 +1,20 @@
+{
+  "name": "ai-form-filler",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "tsc --noEmit && vite build",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.26",
+    "@types/chrome": "^0.0.287",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "extName": { "message": "KI-Formularausfüller" },
+  "extDescription": {
+    "message": "Kontextbewusstes Ausfüllen mit lokalen Heuristiken und optionaler KI (eigener API-Schlüssel)."
+  },
+  "actionTitle": { "message": "KI-Formularausfüller" },
+  "commandFill": { "message": "Sichtbares Formular ausfüllen" },
+  "popupTitle": { "message": "KI-Formularausfüller" },
+  "labelApiKey": { "message": "API-Schlüssel" },
+  "labelRememberKey": { "message": "Schlüssel über Browser-Neustarts speichern" },
+  "labelBaseUrl": { "message": "API-Basis-URL" },
+  "labelModel": { "message": "Modell" },
+  "labelFillMode": { "message": "Ausfüllmodus" },
+  "modeHybrid": { "message": "Hybrid (Heuristik + KI)" },
+  "modeAiOnly": { "message": "Nur KI" },
+  "modeHeuristicsOnly": { "message": "Nur Heuristik" },
+  "labelFillLanguage": { "message": "Sprache für ausgefüllte Daten" },
+  "fillLangAuto": { "message": "Automatisch (von der Seite)" },
+  "fillLangOverride": { "message": "Locale überschreiben" },
+  "labelLocaleOverride": { "message": "Locale (BCP-47)" },
+  "labelPersona": { "message": "Persona-JSON (optional)" },
+  "labelMaxRounds": { "message": "Max. Durchläufe" },
+  "labelSettleMs": { "message": "Wartezeit (ms)" },
+  "labelFillEmptyOnly": { "message": "Nur leere Felder" },
+  "btnSave": { "message": "Einstellungen speichern" },
+  "btnClearKey": { "message": "API-Schlüssel löschen" },
+  "btnFill": { "message": "Diesen Tab ausfüllen" },
+  "statusIdle": { "message": "Bereit." },
+  "statusNoTab": { "message": "Kein aktiver Tab." },
+  "statusSent": { "message": "Ausfüllen gestartet." },
+  "errGeneric": { "message": "Etwas ist schiefgelaufen." },
+  "keyHint": {
+    "message": "Schlüssel bleiben in der Extension (lokal oder Sitzung). Niemals an Webseiten gesendet. Gerät sperren—wer das Profil nutzt, kann gespeicherte Schlüssel verwenden."
+  }
+}
