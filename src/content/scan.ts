@@ -56,6 +56,60 @@ function associatedLabelText(input: HTMLInputElement | HTMLTextAreaElement | HTM
   return "";
 }
 
+function rectDistance(a: DOMRect, b: DOMRect): number {
+  const dx = Math.max(0, Math.max(a.left - b.right, b.left - a.right));
+  const dy = Math.max(0, Math.max(a.top - b.bottom, b.top - a.bottom));
+  return Math.hypot(dx, dy);
+}
+
+function nearestFormPurpose(el: HTMLElement): string | undefined {
+  const form = el.closest("form");
+  if (form) {
+    const formAria = form.getAttribute("aria-label")?.trim();
+    if (formAria) return formAria;
+    const labelledBy = form.getAttribute("aria-labelledby");
+    if (labelledBy) {
+      const fromIds = textFromIds(labelledBy);
+      if (fromIds) return fromIds;
+    }
+    const formHeading = form.querySelector<HTMLElement>("h1, h2, legend");
+    if (formHeading?.textContent?.trim()) return formHeading.textContent.trim();
+  }
+
+  const targetRect = el.getBoundingClientRect();
+  const headings = Array.from(document.querySelectorAll<HTMLElement>("h1, h2"));
+  let best: { text: string; d: number } | null = null;
+  for (const heading of headings) {
+    const text = heading.textContent?.trim();
+    if (!text) continue;
+    const d = rectDistance(targetRect, heading.getBoundingClientRect());
+    if (!best || d < best.d) best = { text, d };
+  }
+  return best?.text;
+}
+
+function surroundingTextWithin50px(el: HTMLElement): string | undefined {
+  const targetRect = el.getBoundingClientRect();
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const collected: string[] = [];
+
+  while (walker.nextNode()) {
+    const textNode = walker.currentNode as Text;
+    const value = textNode.nodeValue?.replace(/\s+/g, " ").trim();
+    if (!value) continue;
+    const parentEl = textNode.parentElement;
+    if (!parentEl) continue;
+    if (parentEl === el || parentEl.contains(el) || el.contains(parentEl)) continue;
+    if (!isVisible(parentEl)) continue;
+    const d = rectDistance(targetRect, parentEl.getBoundingClientRect());
+    if (d <= 50) collected.push(value);
+    if (collected.length >= 8) break;
+  }
+
+  if (collected.length === 0) return undefined;
+  return Array.from(new Set(collected)).join(" ").slice(0, 500);
+}
+
 function isVisible(el: HTMLElement): boolean {
   if (!(el instanceof HTMLElement)) return false;
   if (el.hidden) return false;
@@ -124,7 +178,9 @@ export function scanFormFields(): ScanResult {
           id: first.id || undefined,
           required: first.required,
           ariaLabel: first.getAttribute("aria-label") || undefined,
-          labelText: associatedLabelText(first) || undefined,
+          labelText: associatedLabelText(first) || first.getAttribute("aria-label") || undefined,
+          formPurpose: nearestFormPurpose(first),
+          surroundingText: surroundingTextWithin50px(first),
           radioGroup: name,
           radioChoices: choices,
           currentValue: checked?.value ?? "",
@@ -169,7 +225,9 @@ export function scanFormFields(): ScanResult {
         maxLength: input.maxLength > 0 ? input.maxLength : undefined,
         autoComplete: input.autocomplete || undefined,
         ariaLabel,
-        labelText: associatedLabelText(input) || undefined,
+        labelText: associatedLabelText(input) || ariaLabel || undefined,
+        formPurpose: nearestFormPurpose(input),
+        surroundingText: surroundingTextWithin50px(input),
         currentValue: valueForDescriptor,
         disabled: input.disabled,
         visible: isVisible(input),
@@ -198,7 +256,9 @@ export function scanFormFields(): ScanResult {
         maxLength: ta.maxLength > 0 ? ta.maxLength : undefined,
         autoComplete: ta.autocomplete || undefined,
         ariaLabel,
-        labelText: associatedLabelText(ta) || undefined,
+        labelText: associatedLabelText(ta) || ariaLabel || undefined,
+        formPurpose: nearestFormPurpose(ta),
+        surroundingText: surroundingTextWithin50px(ta),
         currentValue: ta.value,
         disabled: ta.disabled,
         visible: isVisible(ta),
@@ -225,7 +285,9 @@ export function scanFormFields(): ScanResult {
         required: sel.required,
         autoComplete: sel.autocomplete || undefined,
         ariaLabel,
-        labelText: associatedLabelText(sel) || undefined,
+        labelText: associatedLabelText(sel) || ariaLabel || undefined,
+        formPurpose: nearestFormPurpose(sel),
+        surroundingText: surroundingTextWithin50px(sel),
         options: gatherOptions(sel),
         currentValue: sel.value,
         disabled: sel.disabled,

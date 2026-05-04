@@ -16,8 +16,8 @@ export interface ExtensionSettings {
 }
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
-  baseUrl: "https://api.openai.com/v1",
-  model: "gpt-4o-mini",
+  baseUrl: "https://openrouter.ai/api/v1",
+  model: "openrouter/free",
   fillMode: "hybrid",
   fillLanguage: "auto",
   fillLocaleOverride: "en-US",
@@ -46,6 +46,8 @@ export interface FieldDescriptor {
   autoComplete?: string;
   ariaLabel?: string;
   labelText?: string;
+  formPurpose?: string;
+  surroundingText?: string;
   options?: FieldOption[];
   radioGroup?: string;
   radioChoices?: FieldOption[];
@@ -76,4 +78,12 @@ export interface LlmFillResponse {
   values?: Record<string, string>;
   error?: string;
   skipped?: boolean;
+}
+
+export interface OpenRouterModelOption {
+  id: string;
+  name: string;
+  contextLength: number;
+  label: string;
+  isFallback?: boolean;
 }

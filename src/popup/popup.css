@@ -31,6 +31,12 @@ body {
   color: #5c5c5c;
 }
 
+.subhint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: #6b7280;
+}
+
 .lbl {
   display: block;
   margin-top: 10px;

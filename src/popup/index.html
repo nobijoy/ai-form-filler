@@ -22,7 +22,9 @@
       <input id="baseUrl" type="text" class="inp" />
 
       <label class="lbl" for="model" id="lblModel"></label>
-      <input id="model" type="text" class="inp" />
+      <input id="model" type="text" class="inp" list="modelOptions" autocomplete="off" />
+      <datalist id="modelOptions"></datalist>
+      <p class="subhint" id="modelHint"></p>
 
       <label class="lbl" for="fillMode" id="lblFillMode"></label>
       <select id="fillMode" class="inp">

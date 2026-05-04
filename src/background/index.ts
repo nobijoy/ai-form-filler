@@ -1,4 +1,4 @@
-import { callLlmForFill } from "./llm";
+import { callLlmForFill, getFreeOpenRouterModels } from "./llm";
 import { clearApiKey, getApiKey, getSettings, saveApiKey, saveSettings } from "./storage";
 import type { ExtensionSettings, FillSnapshot, LlmFillResponse } from "../shared/types";
 
@@ -37,6 +37,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === "LLM_FILL") {
     void handleLlmFill(message.snapshot as FillSnapshot).then(sendResponse);
+    return true;
+  }
+  if (message?.type === "GET_OPENROUTER_MODELS") {
+    void (async () => {
+      const key = await getApiKey();
+      const result = await getFreeOpenRouterModels(key);
+      sendResponse(result);
+    })();
     return true;
   }
   if (message?.type === "SAVE_SETTINGS") {

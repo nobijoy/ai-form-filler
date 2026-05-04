@@ -7,7 +7,7 @@ export default defineManifest({
   version: "0.1.0",
   default_locale: "en",
   permissions: ["storage", "activeTab", "scripting"],
-  host_permissions: ["https://api.openai.com/*"],
+  host_permissions: ["https://openrouter.ai/*"],
   background: {
     service_worker: "src/background/index.ts",
     type: "module",

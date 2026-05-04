@@ -1,4 +1,9 @@
-import type { ExtensionSettings, FillMode, FillLanguagePolicy } from "../shared/types";
+import type {
+  ExtensionSettings,
+  FillMode,
+  FillLanguagePolicy,
+  OpenRouterModelOption,
+} from "../shared/types";
 import { DEFAULT_SETTINGS } from "../shared/types";
 
 function t(id: string): string {
@@ -20,6 +25,13 @@ interface GetSettingsResponse {
   hasApiKey: boolean;
 }
 
+interface GetOpenRouterModelsResponse {
+  models: OpenRouterModelOption[];
+  fromFallback: boolean;
+}
+
+let modelOptions: OpenRouterModelOption[] = [];
+
 function byId(id: string): HTMLElement {
   const n = document.getElementById(id);
   if (!n) throw new Error(`Missing #${id}`);
@@ -38,6 +50,7 @@ function applyI18n(): void {
   byId("lblRemember").textContent = t("labelRememberKey");
   byId("lblBaseUrl").textContent = t("labelBaseUrl");
   byId("lblModel").textContent = t("labelModel");
+  byId("modelHint").textContent = t("modelHintLoading");
   byId("lblFillMode").textContent = t("labelFillMode");
   byId("optHybrid").textContent = t("modeHybrid");
   byId("optAi").textContent = t("modeAiOnly");
@@ -56,13 +69,53 @@ function applyI18n(): void {
   byId("keyHint").textContent = t("keyHint");
 }
 
+function resolveModelId(inputValue: string): string {
+  const v = inputValue.trim();
+  if (!v) return DEFAULT_SETTINGS.model;
+  const byLabel = modelOptions.find((m) => m.label === v);
+  if (byLabel) return byLabel.id;
+  const byIdValue = modelOptions.find((m) => m.id === v);
+  if (byIdValue) return byIdValue.id;
+  return v;
+}
+
+function resolveModelDisplayValue(modelId: string): string {
+  const found = modelOptions.find((m) => m.id === modelId);
+  return found ? found.label : modelId;
+}
+
+async function loadModelOptions(selectedModelId: string): Promise<void> {
+  const datalist = byId("modelOptions") as HTMLDataListElement;
+  datalist.replaceChildren();
+  byId("modelHint").textContent = t("modelHintLoading");
+  const modelInput = byId("model") as HTMLInputElement;
+  modelInput.disabled = true;
+
+  const res = await sendMessage<GetOpenRouterModelsResponse>({
+    type: "GET_OPENROUTER_MODELS",
+  });
+
+  modelOptions = res.models;
+  for (const model of modelOptions) {
+    const opt = document.createElement("option");
+    opt.value = model.label;
+    datalist.appendChild(opt);
+  }
+
+  modelInput.disabled = false;
+  modelInput.value = resolveModelDisplayValue(selectedModelId);
+  byId("modelHint").textContent = res.fromFallback
+    ? t("modelHintFallback")
+    : t("modelHintLoaded");
+}
+
 async function load(): Promise<void> {
   const { settings, hasApiKey } = await sendMessage<GetSettingsResponse>({
     type: "GET_SETTINGS",
   });
   const s = { ...DEFAULT_SETTINGS, ...settings };
   (byId("baseUrl") as HTMLInputElement).value = s.baseUrl;
-  (byId("model") as HTMLInputElement).value = s.model;
+  await loadModelOptions(s.model);
   (byId("fillMode") as HTMLSelectElement).value = s.fillMode;
   (byId("fillLanguage") as HTMLSelectElement).value = s.fillLanguage;
   (byId("localeOverride") as HTMLInputElement).value = s.fillLocaleOverride;
@@ -80,7 +133,7 @@ async function saveSettingsOnly(): Promise<void> {
   const settings: Partial<ExtensionSettings> = {
     baseUrl:
       (byId("baseUrl") as HTMLInputElement).value.trim() || DEFAULT_SETTINGS.baseUrl,
-    model: (byId("model") as HTMLInputElement).value.trim() || DEFAULT_SETTINGS.model,
+    model: resolveModelId((byId("model") as HTMLInputElement).value),
     fillMode: (byId("fillMode") as HTMLSelectElement).value as FillMode,
     fillLanguage: (byId("fillLanguage") as HTMLSelectElement).value as FillLanguagePolicy,
     fillLocaleOverride: (byId("localeOverride") as HTMLInputElement).value.trim(),

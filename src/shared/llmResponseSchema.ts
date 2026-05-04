@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** OpenAI returns JSON object with syntheticId -> value */
+/** LLM returns JSON object with syntheticId -> value */
 export const llmValuesSchema = z.record(z.string(), z.string());
 
 export function parseLlmValues(raw: string): Record<string, string> {

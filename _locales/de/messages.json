@@ -10,6 +10,13 @@
   "labelRememberKey": { "message": "Schlüssel über Browser-Neustarts speichern" },
   "labelBaseUrl": { "message": "API-Basis-URL" },
   "labelModel": { "message": "Modell" },
+  "modelHintLoading": { "message": "Lade kostenlose OpenRouter-Modelle..." },
+  "modelHintLoaded": {
+    "message": "Zum Suchen tippen. Kostenlose Modelle sind nach Kontextlaenge sortiert."
+  },
+  "modelHintFallback": {
+    "message": "Fallback-Modellliste aktiv. Netzwerk/API-Zugriff pruefen."
+  },
   "labelFillMode": { "message": "Ausfüllmodus" },
   "modeHybrid": { "message": "Hybrid (Heuristik + KI)" },
   "modeAiOnly": { "message": "Nur KI" },

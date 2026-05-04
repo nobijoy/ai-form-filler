@@ -29,11 +29,23 @@
   },
   "labelBaseUrl": {
     "message": "API base URL",
-    "description": "OpenAI-compatible base"
+    "description": "OpenRouter API base"
   },
   "labelModel": {
     "message": "Model",
     "description": "Model id"
+  },
+  "modelHintLoading": {
+    "message": "Loading free OpenRouter models...",
+    "description": "Model list loading hint"
+  },
+  "modelHintLoaded": {
+    "message": "Type to search models. Free models sorted by context length.",
+    "description": "Model list ready hint"
+  },
+  "modelHintFallback": {
+    "message": "Using fallback model list. Check your network/API access.",
+    "description": "Model fallback hint"
   },
   "labelFillMode": {
     "message": "Fill mode",
