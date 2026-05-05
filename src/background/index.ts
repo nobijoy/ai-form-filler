@@ -1,10 +1,66 @@
 import { callLlmForFill, getFreeOpenRouterModels } from "./llm";
 import { clearApiKey, getApiKey, getSettings, saveApiKey, saveSettings } from "./storage";
-import type { ExtensionSettings, FillSnapshot, LlmFillResponse } from "../shared/types";
+import type { ExtensionSettings, FillMode, FillSnapshot, LlmFillResponse } from "../shared/types";
+
+const MENU_ID = "aff_fill_now";
+let contextMenuRefresh: Promise<void> = Promise.resolve();
 
 chrome.runtime.onInstalled.addListener(() => {
-  /* cold start */
+  void refreshContextMenu();
 });
+
+chrome.runtime.onStartup.addListener(() => {
+  void refreshContextMenu();
+});
+
+function modeLabel(mode: FillMode): string {
+  if (mode === "ai_only") return "AI only";
+  if (mode === "heuristics_only") return "Heuristics only";
+  return "Hybrid";
+}
+
+async function refreshContextMenu(): Promise<void> {
+  contextMenuRefresh = contextMenuRefresh.then(async () => {
+    const settings = await getSettings();
+    const title = `Fill this page (${modeLabel(settings.fillMode)})`;
+
+    chrome.contextMenus.update(MENU_ID, { title, contexts: ["page", "editable"] }, () => {
+      const updateErr = chrome.runtime.lastError;
+      if (!updateErr) {
+        console.debug("[AI Form Filler] context menu updated:", title);
+        return;
+      }
+
+      chrome.contextMenus.remove(MENU_ID, () => {
+        const removeErr = chrome.runtime.lastError;
+        if (removeErr) {
+          console.debug("[AI Form Filler] contextMenus.remove warning:", removeErr);
+        }
+        chrome.contextMenus.create(
+          {
+            id: MENU_ID,
+            title,
+            contexts: ["page", "editable"],
+          },
+          () => {
+            const createErr = chrome.runtime.lastError;
+            if (createErr) {
+              console.debug(
+                "[AI Form Filler] contextMenus.create error:",
+                createErr,
+              );
+            } else {
+              console.debug("[AI Form Filler] context menu ready:", title);
+            }
+          },
+        );
+      });
+    });
+  });
+  return contextMenuRefresh;
+}
+
+void refreshContextMenu();
 
 function handleGetSettings(sendResponse: (r: unknown) => void): void {
   void (async () => {
@@ -51,6 +107,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     void (async () => {
       const { settings } = message as { settings: Partial<ExtensionSettings> };
       await saveSettings(settings);
+      await refreshContextMenu();
       sendResponse({ ok: true });
     })();
     return true;
@@ -73,6 +130,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   return false;
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId !== MENU_ID || !tab?.id) return;
+  console.debug("[AI Form Filler] context menu clicked on tab:", tab.id);
+  void chrome.tabs.sendMessage(tab.id, { type: "RUN_FILL" }).catch(() => {
+    /* no content script on this tab */
+  });
 });
 
 async function handleLlmFill(snapshot: FillSnapshot): Promise<LlmFillResponse> {

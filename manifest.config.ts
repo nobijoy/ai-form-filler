@@ -6,7 +6,7 @@ export default defineManifest({
   description: "__MSG_extDescription__",
   version: "0.1.0",
   default_locale: "en",
-  permissions: ["storage", "activeTab", "scripting"],
+  permissions: ["storage", "activeTab", "scripting", "contextMenus"],
   host_permissions: ["https://openrouter.ai/*"],
   background: {
     service_worker: "src/background/index.ts",
