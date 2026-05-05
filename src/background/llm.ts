@@ -181,11 +181,10 @@ export async function callLlmForFill(
       ? `User persona JSON (use for names/emails when consistent): ${settings.personaJson.slice(0, 2000)}`
       : "";
 
-  const body = {
-    model: settings.model,
+  const bodyBase = {
     temperature: 0.1,
     top_p: 0.2,
-    max_tokens: 900,
+    include_reasoning: false,
     response_format: { type: "json_object" as const },
     messages: [
       { role: "system" as const, content: systemPrompt(settings) },
@@ -196,31 +195,147 @@ export async function callLlmForFill(
     ],
   };
 
+  const sleep = async (ms: number): Promise<void> =>
+    await new Promise((resolve) => setTimeout(resolve, ms));
+
   const attempt = async (extraUserHint?: string): Promise<Record<string, string>> => {
-    const messages = [...body.messages];
+    const baseMessages = [...bodyBase.messages];
     if (extraUserHint) {
-      messages.push({ role: "user" as const, content: extraUserHint });
+      baseMessages.push({ role: "user" as const, content: extraUserHint });
     }
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        "HTTP-Referer": APP_URL,
-        "X-Title": APP_TITLE,
-      },
-      body: JSON.stringify({ ...body, messages }),
-    });
-    if (!res.ok) {
-      const t = await res.text();
-      throw new Error(`API ${res.status}: ${t.slice(0, 500)}`);
-    }
-    const data = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
+    const baseHeaders = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      "HTTP-Referer": APP_URL,
+      "X-Title": APP_TITLE,
     };
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error("Empty model response");
-    return parseLlmValues(content);
+
+    const perform = async (
+      model: string,
+      maxTokens: number,
+      payloadMessages: typeof baseMessages,
+    ): Promise<{
+      ok: boolean;
+      status: number;
+      text: string;
+      data?: {
+        choices?: {
+          finish_reason?: string | null;
+          message?: { content?: string | null; reasoning?: string | null };
+        }[];
+      };
+    }> => {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: baseHeaders,
+        body: JSON.stringify({ ...bodyBase, model, max_tokens: maxTokens, messages: payloadMessages }),
+      });
+      const text = await res.text();
+      if (!res.ok) return { ok: false, status: res.status, text };
+      const data = JSON.parse(text) as {
+        choices?: {
+          finish_reason?: string | null;
+          message?: { content?: string | null; reasoning?: string | null };
+        }[];
+      };
+      return { ok: true, status: res.status, text, data };
+    };
+
+    const isTransient = (status: number, text: string): boolean =>
+      status === 429 || status >= 500 || /rate-limit|temporarily rate-limited|retry/i.test(text);
+
+    const tokenBudgets = [8000, 3000, 1200];
+    const runForModel = async (model: string): Promise<Record<string, string>> => {
+      let lastErr = "";
+      for (const maxTokens of tokenBudgets) {
+        for (let i = 0; i < 3; i++) {
+          let result = await perform(model, maxTokens, baseMessages);
+        const needsNoSystemFallback =
+          !result.ok &&
+          result.status === 400 &&
+          /Developer instruction is not enabled/i.test(result.text);
+
+        if (needsNoSystemFallback) {
+          const compactUserPrompt = [
+            "You are a QA form test-data assistant.",
+            "Return ONLY valid minified JSON object: syntheticId -> string.",
+            "Follow field constraints, use exact select/radio option values, and use html_lang/fillLocale.",
+            "Do not include commentary.",
+            buildUserPayload(snapshot, personaNote),
+            extraUserHint || "",
+          ]
+            .filter(Boolean)
+            .join("\n\n");
+            result = await perform(model, maxTokens, [
+              { role: "user" as const, content: compactUserPrompt },
+            ]);
+        }
+
+          const maxTokensRejected =
+            !result.ok &&
+            result.status === 400 &&
+            /(max[_\s-]?tokens|context length|too many tokens|token limit)/i.test(result.text);
+          if (maxTokensRejected) {
+            lastErr = `API ${result.status}: ${result.text.slice(0, 500)}`;
+            break;
+          }
+
+          if (!result.ok) {
+            lastErr = `API ${result.status}: ${result.text.slice(0, 500)}`;
+            if (i < 2 && isTransient(result.status, result.text)) {
+              await sleep(300 * (i + 1) + Math.floor(Math.random() * 200));
+              continue;
+            }
+            break;
+          }
+
+          const data = result.data;
+          if (!data) {
+            lastErr = "Empty API response";
+            if (i < 2) {
+              await sleep(250 * (i + 1));
+              continue;
+            }
+            break;
+          }
+          const first = data.choices?.[0];
+          const content = first?.message?.content;
+          if (!content && first?.finish_reason === "length") {
+            lastErr = "Model exhausted output budget before JSON content.";
+            if (i < 2) {
+              await sleep(250 * (i + 1));
+              continue;
+            }
+            break;
+          }
+          if (!content) {
+            lastErr = "Empty model response";
+            if (i < 2) {
+              await sleep(250 * (i + 1));
+              continue;
+            }
+            break;
+          }
+          return parseLlmValues(content);
+        }
+      }
+      throw new Error(`[model=${model}] ${lastErr || "unknown provider failure"}`);
+    };
+
+    const modelCandidates = Array.from(
+      new Set(
+        [settings.model, "openrouter/free"].filter((m) => typeof m === "string" && m.trim().length > 0),
+      ),
+    );
+    const errs: string[] = [];
+    for (const m of modelCandidates) {
+      try {
+        return await runForModel(m);
+      } catch (e) {
+        errs.push(e instanceof Error ? e.message : String(e));
+      }
+    }
+    throw new Error(errs.join(" | "));
   };
 
   try {
@@ -230,7 +345,7 @@ export async function callLlmForFill(
     const msg = e1 instanceof Error ? e1.message : String(e1);
     try {
       const values = await attempt(
-        `Your previous output failed validation or parsing. Return ONLY a JSON object string->string. Error: ${msg.slice(0, 400)}`,
+        `Your previous output failed validation/parsing. Return ONLY the final minified JSON object immediately, with no reasoning, no preface, no markdown. Error: ${msg.slice(0, 400)}`,
       );
       return { ok: true, values };
     } catch (e2) {
