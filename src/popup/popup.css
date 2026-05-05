@@ -10,29 +10,47 @@ body {
     Segoe UI,
     Roboto,
     sans-serif;
-  color: #1a1a1a;
-  background: #f6f7f9;
-  min-width: 320px;
+  color: #111827;
+  background: #eef2ff;
+  min-width: 360px;
 }
 
 .wrap {
-  padding: 14px 16px 18px;
+  padding: 14px;
 }
 
 .title {
-  margin: 0 0 8px;
-  font-size: 16px;
-  font-weight: 600;
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 700;
 }
 
 .hint {
-  margin: 0 0 12px;
+  margin: 0 0 10px;
   font-size: 11px;
-  color: #5c5c5c;
+  color: #4b5563;
+}
+
+.panel {
+  background: #ffffff;
+  border: 1px solid #dbe3f0;
+  border-radius: 10px;
+  padding: 10px 10px 12px;
+  margin-top: 10px;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.04);
+}
+
+.panelTitle {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .subhint {
-  margin: 4px 0 0;
+  margin: 4px 0 2px;
   font-size: 11px;
   color: #6b7280;
 }
@@ -50,25 +68,27 @@ body {
 
 .lbl {
   display: block;
-  margin-top: 10px;
+  margin-top: 9px;
   margin-bottom: 4px;
   font-size: 11px;
-  font-weight: 600;
-  color: #444;
+  font-weight: 650;
+  color: #374151;
 }
 
 .inp {
   width: 100%;
-  padding: 7px 9px;
-  border: 1px solid #c8ccd0;
+  padding: 8px 9px;
+  border: 1px solid #cbd5e1;
   border-radius: 6px;
   font-size: 13px;
   background: #fff;
+  transition: border-color 120ms ease;
 }
 
 .inp:focus {
-  outline: 2px solid #3b82f6;
-  outline-offset: 1px;
+  outline: 2px solid #93c5fd;
+  border-color: #3b82f6;
+  outline-offset: 0;
 }
 
 .inp.sm {
@@ -86,7 +106,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 11px;
   font-size: 12px;
   cursor: pointer;
 }
@@ -94,12 +114,12 @@ body {
 .row {
   display: flex;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 12px;
 }
 
 .btn {
   padding: 8px 12px;
-  border: 1px solid #c8ccd0;
+  border: 1px solid #cbd5e1;
   border-radius: 6px;
   background: #fff;
   font-size: 12px;
@@ -111,8 +131,8 @@ body {
 }
 
 .btn.primary {
-  background: #1d4ed8;
-  border-color: #1d4ed8;
+  background: #1e40af;
+  border-color: #1e40af;
   color: #fff;
 }
 
@@ -123,15 +143,15 @@ body {
 .btn.fill {
   width: 100%;
   margin-top: 10px;
-  padding: 10px;
+  padding: 11px;
   font-weight: 600;
-  background: #059669;
-  border-color: #059669;
+  background: #0d9488;
+  border-color: #0d9488;
   color: #fff;
 }
 
 .btn.fill:hover {
-  background: #047857;
+  background: #0f766e;
 }
 
 .status {

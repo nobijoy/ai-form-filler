@@ -103,6 +103,14 @@
     "message": "Settle delay (ms)",
     "description": "After apply"
   },
+  "labelAutoNextEnabled": {
+    "message": "Auto-next pages when current step is complete",
+    "description": "Enable automatic next-step button clicking"
+  },
+  "labelAutoNextMaxSteps": {
+    "message": "Max auto-next pages",
+    "description": "Safety limit for auto-next navigation"
+  },
   "labelFillEmptyOnly": {
     "message": "Fill empty fields only",
     "description": "Checkbox"

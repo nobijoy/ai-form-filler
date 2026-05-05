@@ -11,58 +11,74 @@
       <h1 class="title" id="heading"></h1>
       <p class="hint" id="keyHint"></p>
 
-      <label class="lbl" for="apiKey" id="lblApiKey"></label>
-      <input id="apiKey" type="password" class="inp" autocomplete="off" />
+      <section class="panel">
+        <h2 class="panelTitle">Connection</h2>
+        <label class="lbl" for="apiKey" id="lblApiKey"></label>
+        <input id="apiKey" type="password" class="inp" autocomplete="off" />
 
-      <label class="chk"
-        ><input type="checkbox" id="rememberKey" /> <span id="lblRemember"></span
-      ></label>
+        <label class="chk"
+          ><input type="checkbox" id="rememberKey" /> <span id="lblRemember"></span
+        ></label>
 
-      <label class="lbl" for="baseUrl" id="lblBaseUrl"></label>
-      <input id="baseUrl" type="text" class="inp" />
+        <label class="lbl" for="baseUrl" id="lblBaseUrl"></label>
+        <input id="baseUrl" type="text" class="inp" />
 
-      <label class="lbl" for="model" id="lblModel"></label>
-      <select id="model" class="inp model-select"></select>
-      <p class="subhint" id="modelHint"></p>
+        <label class="lbl" for="model" id="lblModel"></label>
+        <select id="model" class="inp model-select"></select>
+        <p class="subhint" id="modelHint"></p>
+      </section>
 
-      <label class="lbl" for="fillMode" id="lblFillMode"></label>
-      <select id="fillMode" class="inp">
-        <option value="hybrid" id="optHybrid"></option>
-        <option value="ai_only" id="optAi"></option>
-        <option value="heuristics_only" id="optHeur"></option>
-      </select>
+      <section class="panel">
+        <h2 class="panelTitle">Behavior</h2>
+        <label class="lbl" for="fillMode" id="lblFillMode"></label>
+        <select id="fillMode" class="inp">
+          <option value="hybrid" id="optHybrid"></option>
+          <option value="ai_only" id="optAi"></option>
+          <option value="heuristics_only" id="optHeur"></option>
+        </select>
 
-      <p class="subhint" id="personaHint"></p>
-      <label class="lbl" for="personaEmail" id="lblPersonaEmail"></label>
-      <input id="personaEmail" type="email" class="inp" autocomplete="off" />
+        <label class="lbl" for="maxRounds" id="lblMaxRounds"></label>
+        <input id="maxRounds" type="number" class="inp sm" min="1" max="20" />
 
-      <div class="persona-grid">
-        <div>
-          <label class="lbl" for="personaFirstName" id="lblPersonaFirstName"></label>
-          <input id="personaFirstName" type="text" class="inp" autocomplete="off" />
+        <label class="lbl" for="settleMs" id="lblSettle"></label>
+        <input id="settleMs" type="number" class="inp sm" min="0" max="2000" step="10" />
+
+        <label class="chk"
+          ><input type="checkbox" id="autoNextEnabled" /> <span id="lblAutoNext"></span
+        ></label>
+
+        <label class="lbl" for="autoNextMaxSteps" id="lblAutoNextMaxSteps"></label>
+        <input id="autoNextMaxSteps" type="number" class="inp sm" min="1" max="10" />
+
+        <label class="chk"
+          ><input type="checkbox" id="fillEmptyOnly" /> <span id="lblFillEmpty"></span
+        ></label>
+      </section>
+
+      <section class="panel">
+        <h2 class="panelTitle">Persona</h2>
+        <p class="subhint" id="personaHint"></p>
+        <label class="lbl" for="personaEmail" id="lblPersonaEmail"></label>
+        <input id="personaEmail" type="email" class="inp" autocomplete="off" />
+
+        <div class="persona-grid">
+          <div>
+            <label class="lbl" for="personaFirstName" id="lblPersonaFirstName"></label>
+            <input id="personaFirstName" type="text" class="inp" autocomplete="off" />
+          </div>
+          <div>
+            <label class="lbl" for="personaLastName" id="lblPersonaLastName"></label>
+            <input id="personaLastName" type="text" class="inp" autocomplete="off" />
+          </div>
         </div>
-        <div>
-          <label class="lbl" for="personaLastName" id="lblPersonaLastName"></label>
-          <input id="personaLastName" type="text" class="inp" autocomplete="off" />
-        </div>
-      </div>
 
-      <label class="lbl" for="personaPhone" id="lblPersonaPhone"></label>
-      <input id="personaPhone" type="tel" class="inp" autocomplete="off" />
+        <label class="lbl" for="personaPhone" id="lblPersonaPhone"></label>
+        <input id="personaPhone" type="tel" class="inp" autocomplete="off" />
 
-      <label class="lbl" for="personaAdvanced" id="lblPersonaAdvanced"></label>
-      <textarea id="personaAdvanced" class="inp ta" rows="3" spellcheck="false"></textarea>
-      <p class="subhint" id="personaAdvancedHint"></p>
-
-      <label class="lbl" for="maxRounds" id="lblMaxRounds"></label>
-      <input id="maxRounds" type="number" class="inp sm" min="1" max="20" />
-
-      <label class="lbl" for="settleMs" id="lblSettle"></label>
-      <input id="settleMs" type="number" class="inp sm" min="0" max="2000" step="10" />
-
-      <label class="chk"
-        ><input type="checkbox" id="fillEmptyOnly" /> <span id="lblFillEmpty"></span
-      ></label>
+        <label class="lbl" for="personaAdvanced" id="lblPersonaAdvanced"></label>
+        <textarea id="personaAdvanced" class="inp ta" rows="3" spellcheck="false"></textarea>
+        <p class="subhint" id="personaAdvancedHint"></p>
+      </section>
 
       <div class="row">
         <button type="button" id="btnSave" class="btn primary"></button>

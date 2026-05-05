@@ -11,6 +11,8 @@ export interface ExtensionSettings {
   personaJson: string;
   maxRounds: number;
   settleMs: number;
+  autoNextEnabled: boolean;
+  autoNextMaxSteps: number;
   fillEmptyOnly: boolean;
   rememberKeyAcrossRestarts: boolean;
 }
@@ -24,6 +26,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   personaJson: "",
   maxRounds: 5,
   settleMs: 100,
+  autoNextEnabled: false,
+  autoNextMaxSteps: 3,
   fillEmptyOnly: true,
   rememberKeyAcrossRestarts: true,
 };

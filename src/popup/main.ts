@@ -2,8 +2,45 @@ import type { ExtensionSettings, FillMode, OpenRouterModelOption } from "../shar
 import { DEFAULT_SETTINGS } from "../shared/types";
 import { buildPersonaJsonFromUi, splitPersonaJsonForUi } from "../shared/personaSettings";
 
+const I18N_FALLBACKS: Record<string, string> = {
+  popupTitle: "AI Form Filler",
+  labelApiKey: "API key",
+  labelRememberKey: "Remember key across browser restarts",
+  labelBaseUrl: "API base URL",
+  labelModel: "Model",
+  modelHintLoading: "Loading free OpenRouter models...",
+  modelHintLoaded: "Pick a model from the list.",
+  modelHintFallback: "Using fallback model list.",
+  labelFillMode: "Fill mode",
+  modeHybrid: "Hybrid (heuristics + AI)",
+  modeAiOnly: "AI only",
+  modeHeuristicsOnly: "Heuristics only",
+  hintPersona: "Optional test identity for consistent fake data.",
+  labelPersonaEmail: "Email",
+  labelPersonaFirstName: "First name",
+  labelPersonaLastName: "Last name",
+  labelPersonaPhone: "Phone",
+  labelPersonaAdvanced: "More fields (JSON)",
+  hintPersonaAdvanced: "Optional extra persona keys.",
+  labelMaxRounds: "Max rounds",
+  labelSettleMs: "Settle delay (ms)",
+  labelAutoNextEnabled: "Auto-next pages when current step is complete",
+  labelAutoNextMaxSteps: "Max auto-next pages",
+  labelFillEmptyOnly: "Fill empty fields only",
+  btnSave: "Save settings",
+  btnClearKey: "Clear API key",
+  btnFill: "Fill this tab",
+  keyHint: "Keys stay in extension storage.",
+  statusIdle: "Ready.",
+  statusNoTab: "No active tab.",
+  statusSent: "Fill command sent.",
+  errGeneric: "Something went wrong.",
+};
+
 function t(id: string): string {
-  return chrome.i18n.getMessage(id) || id;
+  const msg = chrome.i18n.getMessage(id);
+  if (msg && msg.trim().length > 0) return msg;
+  return I18N_FALLBACKS[id] || id;
 }
 
 function sendMessage<T>(msg: unknown): Promise<T> {
@@ -61,6 +98,8 @@ function applyI18n(): void {
   (byId("personaAdvanced") as HTMLTextAreaElement).placeholder = t("placeholderPersonaAdvanced");
   byId("lblMaxRounds").textContent = t("labelMaxRounds");
   byId("lblSettle").textContent = t("labelSettleMs");
+  byId("lblAutoNext").textContent = t("labelAutoNextEnabled");
+  byId("lblAutoNextMaxSteps").textContent = t("labelAutoNextMaxSteps");
   byId("lblFillEmpty").textContent = t("labelFillEmptyOnly");
   byId("btnSave").textContent = t("btnSave");
   byId("btnClearKey").textContent = t("btnClearKey");
@@ -137,6 +176,8 @@ async function load(): Promise<void> {
   (byId("personaAdvanced") as HTMLTextAreaElement).value = personaUi.advancedJson;
   (byId("maxRounds") as HTMLInputElement).value = String(s.maxRounds);
   (byId("settleMs") as HTMLInputElement).value = String(s.settleMs);
+  (byId("autoNextEnabled") as HTMLInputElement).checked = !!s.autoNextEnabled;
+  (byId("autoNextMaxSteps") as HTMLInputElement).value = String(s.autoNextMaxSteps ?? 3);
   (byId("fillEmptyOnly") as HTMLInputElement).checked = s.fillEmptyOnly;
   (byId("rememberKey") as HTMLInputElement).checked = s.rememberKeyAcrossRestarts;
   (byId("apiKey") as HTMLInputElement).value = "";
@@ -173,6 +214,15 @@ async function saveSettingsOnly(): Promise<void> {
       Math.max(
         0,
         Number((byId("settleMs") as HTMLInputElement).value) || DEFAULT_SETTINGS.settleMs,
+      ),
+    ),
+    autoNextEnabled: (byId("autoNextEnabled") as HTMLInputElement).checked,
+    autoNextMaxSteps: Math.min(
+      10,
+      Math.max(
+        1,
+        Number((byId("autoNextMaxSteps") as HTMLInputElement).value) ||
+          DEFAULT_SETTINGS.autoNextMaxSteps,
       ),
     ),
     fillEmptyOnly: (byId("fillEmptyOnly") as HTMLInputElement).checked,

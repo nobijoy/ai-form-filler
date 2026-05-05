@@ -37,6 +37,10 @@
   },
   "labelMaxRounds": { "message": "Max. Durchläufe" },
   "labelSettleMs": { "message": "Wartezeit (ms)" },
+  "labelAutoNextEnabled": {
+    "message": "Naechste Seite automatisch, wenn aktueller Schritt fertig ist"
+  },
+  "labelAutoNextMaxSteps": { "message": "Max. automatische Weiterklicks" },
   "labelFillEmptyOnly": { "message": "Nur leere Felder" },
   "btnSave": { "message": "Einstellungen speichern" },
   "btnClearKey": { "message": "API-Schlüssel löschen" },
