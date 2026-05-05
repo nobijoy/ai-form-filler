@@ -82,7 +82,8 @@ The extension only runs on normal web pages—**not** on `chrome://` pages or th
 
 - Test **one screen at a time** on long wizards: go to step 2, click fill again, and so on.
 - Use **Heuristics only** first to see layout and validation without spending API tokens.
-- For **non-English** UIs, use **Fill language → Auto** so the model follows the page language, or set an **override locale** if you need English test data on a localized site.
+- **Fill language** follows the **page automatically** (`<html lang>`, document locale).
+- Optional **persona**: enter email, name, and phone (and optional extra JSON) so fake data stays consistent across fields and between heuristic + AI passes.
 - If something fails, open **`chrome://extensions`**, find **AI Form Filler**, click **service worker** (for “Inspect views”) and check the console for API errors (invalid key, quota, wrong model).
 
 ---

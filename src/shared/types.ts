@@ -20,7 +20,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   model: "openrouter/free",
   fillMode: "hybrid",
   fillLanguage: "auto",
-  fillLocaleOverride: "en-US",
+  fillLocaleOverride: "",
   personaJson: "",
   maxRounds: 5,
   settleMs: 100,

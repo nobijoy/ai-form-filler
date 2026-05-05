@@ -20,7 +20,7 @@
     "description": "Popup heading"
   },
   "labelApiKey": {
-    "message": "API key",
+    "message": "API key*",
     "description": "Settings label"
   },
   "labelRememberKey": {
@@ -28,11 +28,11 @@
     "description": "Checkbox"
   },
   "labelBaseUrl": {
-    "message": "API base URL",
+    "message": "API base URL*",
     "description": "OpenRouter API base"
   },
   "labelModel": {
-    "message": "Model",
+    "message": "Model*",
     "description": "Model id"
   },
   "modelHintLoading": {
@@ -40,7 +40,7 @@
     "description": "Model list loading hint"
   },
   "modelHintLoaded": {
-    "message": "Type to search models. Free models sorted by context length.",
+    "message": "Pick a model from the list. Free models are sorted by largest context first.",
     "description": "Model list ready hint"
   },
   "modelHintFallback": {
@@ -63,25 +63,37 @@
     "message": "Heuristics only",
     "description": "Option"
   },
-  "labelFillLanguage": {
-    "message": "Fill language",
-    "description": "Auto or override"
+  "hintPersona": {
+    "message": "Optional test identity for consistent fake names, email, and phone (heuristics + AI). Language follows the page automatically.",
+    "description": "Intro under persona section"
   },
-  "fillLangAuto": {
-    "message": "Auto (from page)",
-    "description": "Option"
+  "labelPersonaEmail": {
+    "message": "Email",
+    "description": "Persona email field"
   },
-  "fillLangOverride": {
-    "message": "Override locale",
-    "description": "Option"
+  "labelPersonaFirstName": {
+    "message": "First name",
+    "description": "Persona first name"
   },
-  "labelLocaleOverride": {
-    "message": "Locale (BCP-47)",
-    "description": "e.g. en-US"
+  "labelPersonaLastName": {
+    "message": "Last name",
+    "description": "Persona last name"
   },
-  "labelPersona": {
-    "message": "Persona JSON (optional)",
-    "description": "Persona"
+  "labelPersonaPhone": {
+    "message": "Phone",
+    "description": "Persona phone"
+  },
+  "labelPersonaAdvanced": {
+    "message": "More fields (JSON)",
+    "description": "Advanced persona JSON"
+  },
+  "hintPersonaAdvanced": {
+    "message": "Optional. Add extra keys for heuristics (e.g. url, street, city, zip, country, fullName). Merged with the fields above.",
+    "description": "Help under advanced JSON"
+  },
+  "placeholderPersonaAdvanced": {
+    "message": "{\n  \"country\": \"DE\",\n  \"fullName\": \"Alex Tester\"\n}",
+    "description": "Example JSON in textarea"
   },
   "labelMaxRounds": {
     "message": "Max rounds",

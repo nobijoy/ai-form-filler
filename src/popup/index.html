@@ -22,8 +22,7 @@
       <input id="baseUrl" type="text" class="inp" />
 
       <label class="lbl" for="model" id="lblModel"></label>
-      <input id="model" type="text" class="inp" list="modelOptions" autocomplete="off" />
-      <datalist id="modelOptions"></datalist>
+      <select id="model" class="inp model-select"></select>
       <p class="subhint" id="modelHint"></p>
 
       <label class="lbl" for="fillMode" id="lblFillMode"></label>
@@ -33,17 +32,27 @@
         <option value="heuristics_only" id="optHeur"></option>
       </select>
 
-      <label class="lbl" for="fillLanguage" id="lblFillLang"></label>
-      <select id="fillLanguage" class="inp">
-        <option value="auto" id="optLangAuto"></option>
-        <option value="override" id="optLangOverride"></option>
-      </select>
+      <p class="subhint" id="personaHint"></p>
+      <label class="lbl" for="personaEmail" id="lblPersonaEmail"></label>
+      <input id="personaEmail" type="email" class="inp" autocomplete="off" />
 
-      <label class="lbl" for="localeOverride" id="lblLocaleOverride"></label>
-      <input id="localeOverride" type="text" class="inp" />
+      <div class="persona-grid">
+        <div>
+          <label class="lbl" for="personaFirstName" id="lblPersonaFirstName"></label>
+          <input id="personaFirstName" type="text" class="inp" autocomplete="off" />
+        </div>
+        <div>
+          <label class="lbl" for="personaLastName" id="lblPersonaLastName"></label>
+          <input id="personaLastName" type="text" class="inp" autocomplete="off" />
+        </div>
+      </div>
 
-      <label class="lbl" for="persona" id="lblPersona"></label>
-      <textarea id="persona" class="inp ta" rows="3"></textarea>
+      <label class="lbl" for="personaPhone" id="lblPersonaPhone"></label>
+      <input id="personaPhone" type="tel" class="inp" autocomplete="off" />
+
+      <label class="lbl" for="personaAdvanced" id="lblPersonaAdvanced"></label>
+      <textarea id="personaAdvanced" class="inp ta" rows="3" spellcheck="false"></textarea>
+      <p class="subhint" id="personaAdvancedHint"></p>
 
       <label class="lbl" for="maxRounds" id="lblMaxRounds"></label>
       <input id="maxRounds" type="number" class="inp sm" min="1" max="20" />

@@ -12,7 +12,7 @@
   "labelModel": { "message": "Modell" },
   "modelHintLoading": { "message": "Lade kostenlose OpenRouter-Modelle..." },
   "modelHintLoaded": {
-    "message": "Zum Suchen tippen. Kostenlose Modelle sind nach Kontextlaenge sortiert."
+    "message": "Modell aus der Liste waehlen. Kostenlose Modelle nach groesster Kontextlaenge sortiert."
   },
   "modelHintFallback": {
     "message": "Fallback-Modellliste aktiv. Netzwerk/API-Zugriff pruefen."
@@ -21,11 +21,20 @@
   "modeHybrid": { "message": "Hybrid (Heuristik + KI)" },
   "modeAiOnly": { "message": "Nur KI" },
   "modeHeuristicsOnly": { "message": "Nur Heuristik" },
-  "labelFillLanguage": { "message": "Sprache für ausgefüllte Daten" },
-  "fillLangAuto": { "message": "Automatisch (von der Seite)" },
-  "fillLangOverride": { "message": "Locale überschreiben" },
-  "labelLocaleOverride": { "message": "Locale (BCP-47)" },
-  "labelPersona": { "message": "Persona-JSON (optional)" },
+  "hintPersona": {
+    "message": "Optionale Test-Identitaet fuer konsistente Daten (Heuristik + KI). Sprache folgt der Seite automatisch."
+  },
+  "labelPersonaEmail": { "message": "E-Mail" },
+  "labelPersonaFirstName": { "message": "Vorname" },
+  "labelPersonaLastName": { "message": "Nachname" },
+  "labelPersonaPhone": { "message": "Telefon" },
+  "labelPersonaAdvanced": { "message": "Weitere Felder (JSON)" },
+  "hintPersonaAdvanced": {
+    "message": "Optional. Zusaetzliche Schluessel fuer Heuristik (z. B. url, street, city, zip, country, fullName). Wird mit den Feldern oben zusammengefuehrt."
+  },
+  "placeholderPersonaAdvanced": {
+    "message": "{\n  \"country\": \"DE\",\n  \"fullName\": \"Alex Tester\"\n}"
+  },
   "labelMaxRounds": { "message": "Max. Durchläufe" },
   "labelSettleMs": { "message": "Wartezeit (ms)" },
   "labelFillEmptyOnly": { "message": "Nur leere Felder" },

@@ -7,7 +7,12 @@ const API_KEY_SESSION = "aff_apiKey";
 export async function getSettings(): Promise<ExtensionSettings> {
   const raw = await chrome.storage.local.get(SETTINGS_KEY);
   const stored = raw[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined;
-  return { ...DEFAULT_SETTINGS, ...stored };
+  return {
+    ...DEFAULT_SETTINGS,
+    ...stored,
+    fillLanguage: "auto",
+    fillLocaleOverride: "",
+  };
 }
 
 export async function saveSettings(partial: Partial<ExtensionSettings>): Promise<void> {

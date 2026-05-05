@@ -1,10 +1,6 @@
-import type {
-  ExtensionSettings,
-  FillMode,
-  FillLanguagePolicy,
-  OpenRouterModelOption,
-} from "../shared/types";
+import type { ExtensionSettings, FillMode, OpenRouterModelOption } from "../shared/types";
 import { DEFAULT_SETTINGS } from "../shared/types";
+import { buildPersonaJsonFromUi, splitPersonaJsonForUi } from "../shared/personaSettings";
 
 function t(id: string): string {
   return chrome.i18n.getMessage(id) || id;
@@ -55,11 +51,14 @@ function applyI18n(): void {
   byId("optHybrid").textContent = t("modeHybrid");
   byId("optAi").textContent = t("modeAiOnly");
   byId("optHeur").textContent = t("modeHeuristicsOnly");
-  byId("lblFillLang").textContent = t("labelFillLanguage");
-  byId("optLangAuto").textContent = t("fillLangAuto");
-  byId("optLangOverride").textContent = t("fillLangOverride");
-  byId("lblLocaleOverride").textContent = t("labelLocaleOverride");
-  byId("lblPersona").textContent = t("labelPersona");
+  byId("personaHint").textContent = t("hintPersona");
+  byId("lblPersonaEmail").textContent = t("labelPersonaEmail");
+  byId("lblPersonaFirstName").textContent = t("labelPersonaFirstName");
+  byId("lblPersonaLastName").textContent = t("labelPersonaLastName");
+  byId("lblPersonaPhone").textContent = t("labelPersonaPhone");
+  byId("lblPersonaAdvanced").textContent = t("labelPersonaAdvanced");
+  byId("personaAdvancedHint").textContent = t("hintPersonaAdvanced");
+  (byId("personaAdvanced") as HTMLTextAreaElement).placeholder = t("placeholderPersonaAdvanced");
   byId("lblMaxRounds").textContent = t("labelMaxRounds");
   byId("lblSettle").textContent = t("labelSettleMs");
   byId("lblFillEmpty").textContent = t("labelFillEmptyOnly");
@@ -69,44 +68,57 @@ function applyI18n(): void {
   byId("keyHint").textContent = t("keyHint");
 }
 
-function resolveModelId(inputValue: string): string {
-  const v = inputValue.trim();
-  if (!v) return DEFAULT_SETTINGS.model;
-  const byLabel = modelOptions.find((m) => m.label === v);
-  if (byLabel) return byLabel.id;
-  const byIdValue = modelOptions.find((m) => m.id === v);
-  if (byIdValue) return byIdValue.id;
-  return v;
-}
+function renderModelSelect(preferredId: string): void {
+  const select = byId("model") as HTMLSelectElement;
+  select.replaceChildren();
 
-function resolveModelDisplayValue(modelId: string): string {
-  const found = modelOptions.find((m) => m.id === modelId);
-  return found ? found.label : modelId;
+  for (const model of modelOptions) {
+    const opt = document.createElement("option");
+    opt.value = model.id;
+    opt.textContent = model.label;
+    select.appendChild(opt);
+  }
+
+  const pick =
+    modelOptions.find((m) => m.id === preferredId)?.id ??
+    modelOptions.find((m) => m.id === DEFAULT_SETTINGS.model)?.id ??
+    modelOptions[0]?.id;
+  if (pick) select.value = pick;
 }
 
 async function loadModelOptions(selectedModelId: string): Promise<void> {
-  const datalist = byId("modelOptions") as HTMLDataListElement;
-  datalist.replaceChildren();
   byId("modelHint").textContent = t("modelHintLoading");
-  const modelInput = byId("model") as HTMLInputElement;
-  modelInput.disabled = true;
+  const select = byId("model") as HTMLSelectElement;
+  select.disabled = true;
 
-  const res = await sendMessage<GetOpenRouterModelsResponse>({
-    type: "GET_OPENROUTER_MODELS",
-  });
-
-  modelOptions = res.models;
-  for (const model of modelOptions) {
-    const opt = document.createElement("option");
-    opt.value = model.label;
-    datalist.appendChild(opt);
+  let res: GetOpenRouterModelsResponse | undefined;
+  try {
+    res = await sendMessage<GetOpenRouterModelsResponse>({
+      type: "GET_OPENROUTER_MODELS",
+    });
+  } catch {
+    res = undefined;
   }
 
-  modelInput.disabled = false;
-  modelInput.value = resolveModelDisplayValue(selectedModelId);
-  byId("modelHint").textContent = res.fromFallback
-    ? t("modelHintFallback")
-    : t("modelHintLoaded");
+  const list = res?.models;
+  modelOptions = Array.isArray(list) && list.length > 0 ? list : [];
+
+  if (modelOptions.length === 0) {
+    modelOptions = [
+      {
+        id: DEFAULT_SETTINGS.model,
+        name: "Auto-Router (Free)",
+        contextLength: 0,
+        label: "Auto-Router (Free)",
+      },
+    ];
+  }
+
+  select.disabled = false;
+  renderModelSelect(selectedModelId);
+  const useFallbackHint =
+    res == null || res.fromFallback || !Array.isArray(res.models) || res.models.length === 0;
+  byId("modelHint").textContent = useFallbackHint ? t("modelHintFallback") : t("modelHintLoaded");
 }
 
 async function load(): Promise<void> {
@@ -117,9 +129,12 @@ async function load(): Promise<void> {
   (byId("baseUrl") as HTMLInputElement).value = s.baseUrl;
   await loadModelOptions(s.model);
   (byId("fillMode") as HTMLSelectElement).value = s.fillMode;
-  (byId("fillLanguage") as HTMLSelectElement).value = s.fillLanguage;
-  (byId("localeOverride") as HTMLInputElement).value = s.fillLocaleOverride;
-  (byId("persona") as HTMLTextAreaElement).value = s.personaJson;
+  const personaUi = splitPersonaJsonForUi(s.personaJson);
+  (byId("personaEmail") as HTMLInputElement).value = personaUi.email;
+  (byId("personaFirstName") as HTMLInputElement).value = personaUi.firstName;
+  (byId("personaLastName") as HTMLInputElement).value = personaUi.lastName;
+  (byId("personaPhone") as HTMLInputElement).value = personaUi.phone;
+  (byId("personaAdvanced") as HTMLTextAreaElement).value = personaUi.advancedJson;
   (byId("maxRounds") as HTMLInputElement).value = String(s.maxRounds);
   (byId("settleMs") as HTMLInputElement).value = String(s.settleMs);
   (byId("fillEmptyOnly") as HTMLInputElement).checked = s.fillEmptyOnly;
@@ -133,11 +148,19 @@ async function saveSettingsOnly(): Promise<void> {
   const settings: Partial<ExtensionSettings> = {
     baseUrl:
       (byId("baseUrl") as HTMLInputElement).value.trim() || DEFAULT_SETTINGS.baseUrl,
-    model: resolveModelId((byId("model") as HTMLInputElement).value),
+    model: (byId("model") as HTMLSelectElement).value.trim() || DEFAULT_SETTINGS.model,
     fillMode: (byId("fillMode") as HTMLSelectElement).value as FillMode,
-    fillLanguage: (byId("fillLanguage") as HTMLSelectElement).value as FillLanguagePolicy,
-    fillLocaleOverride: (byId("localeOverride") as HTMLInputElement).value.trim(),
-    personaJson: (byId("persona") as HTMLTextAreaElement).value,
+    fillLanguage: "auto",
+    fillLocaleOverride: "",
+    personaJson: buildPersonaJsonFromUi(
+      {
+        email: (byId("personaEmail") as HTMLInputElement).value,
+        firstName: (byId("personaFirstName") as HTMLInputElement).value,
+        lastName: (byId("personaLastName") as HTMLInputElement).value,
+        phone: (byId("personaPhone") as HTMLInputElement).value,
+      },
+      (byId("personaAdvanced") as HTMLTextAreaElement).value,
+    ),
     maxRounds: Math.min(
       20,
       Math.max(

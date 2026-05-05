@@ -62,12 +62,19 @@ function formatContextLabel(contextLength: number): string {
   return `${contextLength} context`;
 }
 
+function isFreePricing(m: OpenRouterModelRecord): boolean {
+  const p = m.pricing?.prompt;
+  const c = m.pricing?.completion;
+  const free = (v: unknown) => v === "0" || v === 0;
+  return free(p) && free(c);
+}
+
 function mapToModelOption(model: OpenRouterModelRecord): OpenRouterModelOption | null {
-  if (!model.id || !model.name) return null;
+  if (!model.id) return null;
   const contextLength = Number.isFinite(model.context_length ?? NaN)
     ? Number(model.context_length)
     : 0;
-  const name = model.name.trim();
+  const name = (model.name?.trim() || model.id).trim();
   return {
     id: model.id,
     name,
@@ -93,7 +100,7 @@ export async function getFreeOpenRouterModels(apiKey?: string): Promise<{
     if (!payload.data || !Array.isArray(payload.data)) throw new Error("Invalid models payload");
 
     const freeModels = payload.data
-      .filter((m) => m.pricing?.prompt === "0" && m.pricing?.completion === "0")
+      .filter((m) => isFreePricing(m))
       .map(mapToModelOption)
       .filter((m): m is OpenRouterModelOption => !!m)
       .sort((a, b) => b.contextLength - a.contextLength);
@@ -108,9 +115,28 @@ export async function getFreeOpenRouterModels(apiKey?: string): Promise<{
 }
 
 function buildUserPayload(snapshot: FillSnapshot, personaNote: string): string {
+  const compactFields = snapshot.fields.map((f) => ({
+    sid: f.syntheticId,
+    tag: f.tag,
+    type: f.inputType,
+    name: f.name,
+    id: f.id,
+    required: !!f.required,
+    value: f.currentValue,
+    maxLength: f.maxLength,
+    pattern: f.pattern,
+    placeholder: f.placeholder?.slice(0, 120),
+    label_text: (f.labelText ?? f.ariaLabel ?? "").slice(0, 160),
+    form_purpose: (f.formPurpose ?? "").slice(0, 140),
+    surrounding_text: (f.surroundingText ?? "").slice(0, 180),
+    options:
+      f.options?.map((o) => o.value).filter((v) => v !== "").slice(0, 60) ??
+      f.radioChoices?.map((o) => o.value).filter((v) => v !== "").slice(0, 60),
+  }));
+
   return JSON.stringify(
     {
-      task: "Return ONLY a JSON object mapping syntheticId to string value for each field that needs a value.",
+      task: "Return ONLY a JSON object: syntheticId -> string value for fields that should be filled now.",
       html_lang: snapshot.documentLocale,
       fillLocale: snapshot.fillLocale,
       roundIndex: snapshot.roundIndex,
@@ -118,55 +144,28 @@ function buildUserPayload(snapshot: FillSnapshot, personaNote: string): string {
       pageTitle: snapshot.pageTitle,
       pageUrl: snapshot.pageUrl,
       persona: personaNote || undefined,
-      heuristicFilled: snapshot.heuristicSummary ?? [],
-      fields: snapshot.fields.map((f) => ({
-        syntheticId: f.syntheticId,
-        tag: f.tag,
-        inputType: f.inputType,
-        name: f.name,
-        id: f.id,
-        placeholder: f.placeholder,
-        required: f.required,
-        pattern: f.pattern,
-        maxLength: f.maxLength,
-        autoComplete: f.autoComplete,
-        ariaLabel: f.ariaLabel,
-        labelText: f.labelText,
-        label_text: f.labelText ?? f.ariaLabel,
-        formPurpose: f.formPurpose,
-        form_purpose: f.formPurpose,
-        surroundingText: f.surroundingText,
-        surrounding_text: f.surroundingText,
-        options: f.options,
-        radioChoices: f.radioChoices,
-        currentValue: f.currentValue,
-        disabled: f.disabled,
-        visible: f.visible,
-        fieldLocale: f.fieldLocale,
-      })),
+      heuristicFilled: snapshot.heuristicSummary?.map((h) => h.syntheticId) ?? [],
+      fields: compactFields,
     },
     null,
     0,
   );
 }
 
-function systemPrompt(settings: ExtensionSettings): string {
-  const override =
-    settings.fillLanguage === "override"
-      ? `Use fill locale override: ${settings.fillLocaleOverride}.`
-      : "Match the form language implied by fillLocale and field labels (any human language).";
-
-  return `You are a test-data assistant for QA form filling. ${override}
+function systemPrompt(_settings: ExtensionSettings): string {
+  return `You are a test-data assistant for QA form filling. Match the form language implied by html_lang, fillLocale, and field labels (any human language).
 Rules:
 - Output ONLY valid minified JSON: an object whose keys are syntheticId strings and values are strings.
-- Respect input type, pattern, maxlength, required, and select/radio option VALUES (use exact option value strings).
+- Respect input type, pattern, maxlength, required, and select/radio option values (exact value strings).
 - Use the provided label_text, form_purpose, surrounding_text, and html_lang as the main context signals.
 - For checkboxes, use "true" or "false".
 - Use realistic but obviously fake test data (e.g. emails like test.user+tag@example.com).
-- Prefer minimal churn: if currentValue is non-empty and the field is already satisfied, you may omit that key or repeat the same value.
-- For conditional forms, prioritize driver fields (country, product type) when multiple empties exist.
-- Return values in the detected html_lang (or fillLocale override when enabled), including script, names, and formatting.
-- Never include markdown, never wrap in code fences.`;
+- Prefer minimal churn: if current value is already present/satisfied, omit that field.
+- Fill all required empty fields.
+- For optional fields, fill only high-confidence fields (identity/contact, obvious profile fields, clear driver fields). Do not blanket-fill every optional checkbox.
+- For conditional forms, prioritize driver fields (country, product type, yes/no toggles) when multiple empties exist.
+- Return values in the detected html_lang / page locale, including script, names, and formatting.
+- Never include markdown, never wrap in code fences, never include commentary.`;
 }
 
 export async function callLlmForFill(
@@ -184,7 +183,9 @@ export async function callLlmForFill(
 
   const body = {
     model: settings.model,
-    temperature: 0.2,
+    temperature: 0.1,
+    top_p: 0.2,
+    max_tokens: 900,
     response_format: { type: "json_object" as const },
     messages: [
       { role: "system" as const, content: systemPrompt(settings) },

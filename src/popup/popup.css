@@ -37,6 +37,17 @@ body {
   color: #6b7280;
 }
 
+.model-select {
+  cursor: pointer;
+}
+
+.persona-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 2px;
+}
+
 .lbl {
   display: block;
   margin-top: 10px;

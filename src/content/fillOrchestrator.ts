@@ -90,11 +90,7 @@ export async function runFillOrchestration(
     }
 
     const docLocale = resolveDocumentLocale();
-    const fillLocale = resolveFillLocale(
-      settings.fillLanguage === "override" ? "override" : "auto",
-      settings.fillLocaleOverride,
-      docLocale,
-    );
+    const fillLocale = resolveFillLocale("auto", "", docLocale);
 
     const snapshot: FillSnapshot = {
       pageTitle: document.title,
