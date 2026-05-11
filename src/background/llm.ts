@@ -87,21 +87,71 @@ export async function getProviderModels(
   }
 }
 
+/** max 1 — mutually exclusive (kept in sync with fillOrchestrator.ts CBG_EXCLUSIVE_TITLE) */
+const EXCLUSIVE_BY_TITLE =
+  /性別|国籍|外国籍|雇用形態|就業形態|勤務スタイル|不採用条件/i;
+/** max 1 — detected from label content when group is small */
+const EXCLUSIVE_GROUP_PATTERN =
+  /gender|性別|male|female|男性|女性|問わず|불문|yes.{0,5}no|はい.{0,5}いいえ|あり.{0,5}なし|有.{0,5}無/i;
+/** max 2 — age bands, welfare items, appeal points */
+const TWO_MAX_BY_TITLE = /年代|年齢層|福利厚生|アピールポイント/i;
+/** max 3 — small-selection groups */
+const SMALL_MAX_BY_TITLE =
+  /給与.*補足|選考フロー|職場環境|フロー|PRポイント|アピール|勤務形態|就業形態|働き方|応募条件|採用条件/i;
+/** max 4 — insurance options */
+const INSURANCE_TITLE = /保険|insurance/i;
+/** max 3 — holiday / leave types */
+const HOLIDAY_TITLE = /休日|holiday|休暇/i;
+
+function inferCbgMax(labels: string[], groupTitle = ""): number {
+  const combined = [groupTitle, ...labels].join(" ");
+
+  if (EXCLUSIVE_BY_TITLE.test(groupTitle)) return 1;
+  if (labels.length <= 4 && EXCLUSIVE_GROUP_PATTERN.test(combined)) return 1;
+
+  if (TWO_MAX_BY_TITLE.test(groupTitle)) return Math.min(labels.length, 2);
+  if (INSURANCE_TITLE.test(groupTitle)) return Math.min(labels.length, 4);
+  if (HOLIDAY_TITLE.test(groupTitle)) return Math.min(labels.length, 3);
+  if (SMALL_MAX_BY_TITLE.test(groupTitle)) return Math.min(labels.length, 3);
+
+  return labels.length;
+}
+
+function inferCbgTitle(labels: string[]): string {
+  if (labels.length === 0) return "";
+  let prefix = labels[0];
+  for (const l of labels.slice(1)) {
+    let i = 0;
+    while (i < prefix.length && i < l.length && prefix[i] === l[i]) i++;
+    prefix = prefix.slice(0, i);
+  }
+  const trimmed = prefix.trim().replace(/[：:・\-_/\\]+$/, "").trim();
+  return trimmed.length >= 2 ? trimmed : "";
+}
+
 function groupCheckboxFields(
   fields: Array<Record<string, unknown>>,
 ): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = [];
   let buf: Array<Record<string, unknown>> = [];
+  let currentGrp: unknown = Symbol(); // unique sentinel so first item always starts fresh
 
   const flush = () => {
     if (buf.length === 0) return;
     if (buf.length === 1) {
-      out.push(buf[0]);
+      const { grp: _g, ...rest } = buf[0] as Record<string, unknown>;
+      out.push(rest);
     } else {
+      const groupTitle = String(buf[0].grp ?? "");
+      const labels = buf.map((f) => String(f.l ?? ""));
+      const title = groupTitle || inferCbgTitle(labels);
+      const max = inferCbgMax(labels, groupTitle);
       out.push({
-        type: "cb_group",
-        req: buf.some((f) => !!f.req),
-        items: buf.map(({ sid, l, val }) => ({ sid, l, val })),
+        type: "cbg",
+        title,
+        mode: buf.some((f) => !!f.req) ? "required" : "optional",
+        max,
+        items: buf.map((f) => [f.sid, f.l]),
       });
     }
     buf = [];
@@ -109,9 +159,16 @@ function groupCheckboxFields(
 
   for (const f of fields) {
     if (f.type === "checkbox") {
+      const fGrp = f.grp;
+      // Flush buffer when the logical group changes (different formPurpose)
+      if (buf.length > 0 && fGrp !== currentGrp) {
+        flush();
+      }
+      currentGrp = fGrp;
       buf.push(f);
     } else {
       flush();
+      currentGrp = Symbol(); // reset sentinel for next checkbox run
       out.push(f);
     }
   }
@@ -120,15 +177,20 @@ function groupCheckboxFields(
 }
 
 function buildUserPayload(snapshot: FillSnapshot, personaNote: string): string {
-  // Strategy 0: exclude hidden inputs — they hold server tokens and must never reach the LLM
+  // Exclude hidden inputs — they hold server tokens and must never reach the LLM
   const eligibleFields = snapshot.fields.filter((f) => f.inputType !== "hidden");
 
-  // Strategies 2 + 3: abbreviated keys and type-aware pruning
   const rawCompact = eligibleFields.map((f) => {
-    const base = { sid: f.syntheticId, tag: f.tag, req: !!f.required, val: f.currentValue };
+    const base = { sid: f.syntheticId, req: !!f.required || undefined };
 
     if (f.inputType === "checkbox") {
-      return { ...base, type: "checkbox", l: (f.labelText ?? "").slice(0, 80) };
+      return {
+        ...base,
+        type: "checkbox",
+        l: (f.labelText ?? "").slice(0, 80),
+        // grp drives group-boundary detection and per-group max inference
+        grp: f.formPurpose?.slice(0, 60).trim() || undefined,
+      };
     }
 
     if (f.inputType === "radio") {
@@ -144,51 +206,28 @@ function buildUserPayload(snapshot: FillSnapshot, personaNote: string): string {
       ...base,
       type: f.inputType,
       l: (f.labelText ?? f.ariaLabel ?? "").slice(0, 120),
-      fp: f.formPurpose?.slice(0, 80),
-      st: f.surroundingText?.slice(0, 100),
-      ph: f.placeholder?.slice(0, 80),
+      ph: f.placeholder?.slice(0, 60) || undefined,
       o: f.options?.map((o) => o.value).filter((v) => v !== "").slice(0, 40),
-      maxLen: f.maxLength,
-      pat: f.pattern,
+      maxLen: f.maxLength || undefined,
+      pat: f.pattern || undefined,
     };
   });
 
-  // Strategy 1: hoist form_purpose when all textual fields share the same value
-  const textualFields = rawCompact.filter((f) => f.type !== "checkbox" && f.type !== "radio");
-  const firstFp = textualFields.length > 0 ? (textualFields[0] as { fp?: string }).fp : undefined;
-  const sharedFp =
-    firstFp && textualFields.every((f) => (f as { fp?: string }).fp === firstFp)
-      ? firstFp
-      : undefined;
+  // Group consecutive checkboxes into cbg entries
+  const groupedFields = groupCheckboxFields(rawCompact as Array<Record<string, unknown>>);
 
-  const dedupedCompact = sharedFp
-    ? rawCompact.map((f) => {
-        if (f.type !== "checkbox" && f.type !== "radio") {
-          const { fp: _fp, ...rest } = f as Record<string, unknown>;
-          return rest;
-        }
-        return f;
-      })
-    : rawCompact;
-
-  // Strategy 2b: group consecutive checkboxes into cb_group entries
-  const groupedFields = groupCheckboxFields(dedupedCompact as Array<Record<string, unknown>>);
-
-  const payload = {
-    task: "Return ONLY a JSON object: syntheticId -> string value for fields that should be filled now.",
-    html_lang: snapshot.documentLocale,
-    fillLocale: snapshot.fillLocale,
-    roundIndex: snapshot.roundIndex,
-    maxRounds: snapshot.maxRounds,
-    pageTitle: snapshot.pageTitle,
-    pageUrl: snapshot.pageUrl,
-    page_ctx: sharedFp,
+  const payload: Record<string, unknown> = {
+    locale: snapshot.fillLocale || snapshot.documentLocale,
+    form: snapshot.pageTitle?.slice(0, 80) || undefined,
+    section: snapshot.chunkSection || undefined,
+    ctx: snapshot.chunkCtx && Object.keys(snapshot.chunkCtx).length > 0
+      ? snapshot.chunkCtx
+      : undefined,
     persona: personaNote || undefined,
-    heuristicFilled: snapshot.heuristicSummary?.map((h) => h.syntheticId) ?? [],
     fields: groupedFields,
   };
 
-  // Strategy 4: strip null/undefined/empty-string values from serialized output
+  // Strip null/undefined/empty-string values from serialized output
   return JSON.stringify(
     payload,
     (_, v) => (v === undefined || v === null || v === "" ? undefined : v),
@@ -197,20 +236,18 @@ function buildUserPayload(snapshot: FillSnapshot, personaNote: string): string {
 }
 
 function systemPrompt(_settings: ExtensionSettings): string {
-  return `You are a test-data assistant for QA form filling. Match the form language implied by html_lang, fillLocale, and field labels (any human language).
-Field key legend: sid=field id, l=label, st=surrounding text, fp=form purpose, o=options, ph=placeholder, req=required, val=current value, page_ctx=shared form section for all fields.
-Rules:
-- Output ONLY valid minified JSON: an object whose keys are syntheticId strings and values are strings.
-- Respect input type, pattern, maxLen, req, and select/radio option values (exact value strings).
-- Use the provided l, fp or page_ctx, st, and html_lang as the main context signals.
-- For checkboxes, use "true" or "false". cb_group contains grouped checkboxes — return sid->"true"/"false" for each item inside it.
-- Use realistic but obviously fake test data (e.g. emails like test.user+tag@example.com).
-- Prefer minimal churn: if current value is already present/satisfied, omit that field.
-- Fill all required empty fields.
-- For optional fields, fill only high-confidence fields (identity/contact, obvious profile fields, clear driver fields). Do not blanket-fill every optional checkbox.
-- For conditional forms, prioritize driver fields (country, product type, yes/no toggles) when multiple empties exist.
-- Return values in the detected html_lang / page locale, including script, names, and formatting.
-- Never include markdown, never wrap in code fences, never include commentary.`;
+  return `You fill QA test forms with realistic fake data.
+Return only minified valid JSON: field id -> string value.
+Use the locale, section, ctx, and field labels to understand what values are appropriate.
+Respect required, type, pattern, maxLen, and exact select/radio option values.
+For cbg checkbox groups: return only selected ids as "true"; omit unchecked ids entirely; respect each group's max; select only one for mutually exclusive groups (gender, yes/no, あり/なし, 男性/女性/問わず).
+Never return non-boolean values for checkbox fields.
+Fill required empty fields and obvious optional identity/contact/profile fields.
+Do not fill every optional checkbox.
+You may include a small _ctx object with key facts discovered in this chunk (e.g. jobCategory, employmentType, location, workStyle, salaryType, companySummary, candidateProfile).
+Use realistic but obviously fake test data (e.g. emails like test.user+tag@example.com).
+Return values matching the locale and field labels.
+No markdown. No commentary.`;
 }
 
 function extractProviderError(raw: string): { code?: number; message?: string; raw?: string } | null {
@@ -285,6 +322,27 @@ export async function testProviderKey(
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+function computeTokenBudgets(snapshot: FillSnapshot): number[] {
+  const section = snapshot.chunkSection;
+  const fields = snapshot.fields;
+
+  if (section === "retry") return [400, 300];
+
+  const checkboxCount = fields.filter((f) => f.inputType === "checkbox").length;
+  const textareaCount = fields.filter((f) => f.tag === "textarea").length;
+
+  // Pure checkbox chunk — responses are just a few "true" values
+  if (checkboxCount === fields.length) return [300, 250];
+
+  // Textarea-heavy chunks need more tokens for generated text
+  if (textareaCount >= 2) return [900, 700, 500];
+
+  if (section === "basic_info") return [600, 450, 300];
+
+  // Default: mixed text/select chunks
+  return [700, 500, 350];
 }
 
 export async function callLlmForFill(
@@ -414,63 +472,79 @@ export async function callLlmForFill(
     const isTransient = (status: number, text: string): boolean =>
       status === 429 || status >= 500 || /rate-limit|temporarily rate-limited|retry/i.test(text);
 
-    const tokenBudgets = [2000, 1500, 1000];
+    const tokenBudgets = computeTokenBudgets(snapshot);
     const runForModel = async (model: string): Promise<Record<string, string>> => {
       let lastErr = "";
-      let consecutiveRateLimits = 0;
+      let jsonParseRetried = false;
       for (const maxTokens of tokenBudgets) {
         for (let i = 0; i < 3; i++) {
           console.debug("[AI Form Filler] LLM attempt", { model, maxTokens, tryIndex: i + 1 });
           let result = await perform(model, maxTokens, baseMessages);
-        const needsNoSystemFallback =
-          !result.ok &&
-          result.status === 400 &&
-          /Developer instruction is not enabled/i.test(result.text);
 
-        if (needsNoSystemFallback) {
-          const compactUserPrompt = [
-            "You are a QA form test-data assistant.",
-            "Return ONLY valid minified JSON object: syntheticId -> string.",
-            "Follow field constraints, use exact select/radio option values, and use html_lang/fillLocale.",
-            "Do not include commentary.",
-            buildUserPayload(snapshot, personaNote),
-            extraUserHint || "",
-          ]
-            .filter(Boolean)
-            .join("\n\n");
+          const needsNoSystemFallback =
+            !result.ok &&
+            result.status === 400 &&
+            /Developer instruction is not enabled/i.test(result.text);
+
+          if (needsNoSystemFallback) {
+            const compactUserPrompt = [
+              "You are a QA form test-data assistant.",
+              "Return ONLY valid minified JSON object: field id -> string.",
+              "Follow field constraints, use exact select/radio/cbg option values.",
+              "No markdown. No commentary.",
+              buildUserPayload(snapshot, personaNote),
+              extraUserHint || "",
+            ]
+              .filter(Boolean)
+              .join("\n\n");
             result = await perform(model, maxTokens, [
               { role: "user" as const, content: compactUserPrompt },
             ]);
-        }
+          }
 
+          // 400 context/token limit: reduce max_tokens by moving to next tier
           const maxTokensRejected =
             !result.ok &&
             result.status === 400 &&
             /(max[_\s-]?tokens|context length|too many tokens|token limit)/i.test(result.text);
           if (maxTokensRejected) {
             lastErr = `API ${result.status}: ${result.text.slice(0, 500)}`;
-            break;
+            break; // try next tokenBudget tier
           }
 
           if (!result.ok) {
             const providerErr = extractProviderError(result.text);
             const providerMsg = providerErr?.raw || providerErr?.message || result.text;
+            const isRateLimit =
+              result.status === 429 ||
+              providerErr?.code === 429 ||
+              /rate.?limit|too many request/i.test(providerMsg);
             const authHint =
               result.status === 401 ||
               /missing authentication|invalid api key|unauthorized/i.test(providerMsg)
                 ? ` Ensure the ${PROVIDERS[provider].label} API key is set in the extension popup (${PROVIDERS[provider].docsUrl}).`
                 : "";
             lastErr = `API ${result.status}: ${providerMsg.slice(0, 500)}${authHint}`;
-            if (result.status === 429 || providerErr?.code === 429) {
-              consecutiveRateLimits += 1;
-              if (consecutiveRateLimits >= 2) {
-                throw new Error(`[model=${model}] upstream rate-limited repeatedly; switching model`);
-              }
-            } else {
-              consecutiveRateLimits = 0;
+
+            if (isRateLimit) {
+              // Rate limits are transient — back off generously but do NOT count toward model failure
+              const backoff =
+                result.retryAfterMs ?? 600 * (i + 1) + Math.floor(Math.random() * 400);
+              console.warn("[AI Form Filler] rate limit — backing off", {
+                model,
+                status: result.status,
+                backoffMs: backoff,
+              });
+              await sleep(backoff);
+              // Keep retrying within the same model/tier; if all attempts exhausted the
+              // error message will contain "429" which the orchestrator detects as rate-limit
+              if (i < 2) continue;
+              break;
             }
+
             if (i < 2 && isTransient(result.status, result.text)) {
-              const backoff = result.retryAfterMs ?? 300 * (i + 1) + Math.floor(Math.random() * 200);
+              const backoff =
+                result.retryAfterMs ?? 300 * (i + 1) + Math.floor(Math.random() * 200);
               console.warn("[AI Form Filler] transient provider error, backing off", {
                 model,
                 status: result.status,
@@ -479,6 +553,7 @@ export async function callLlmForFill(
               await sleep(backoff);
               continue;
             }
+            // Non-transient error: stop trying this model
             break;
           }
 
@@ -514,7 +589,43 @@ export async function callLlmForFill(
             }
             break;
           }
-          return parseLlmValues(content);
+
+          // Attempt JSON parse; on first failure retry once with a strict JSON-only message
+          try {
+            return parseLlmValues(content);
+          } catch {
+            if (!jsonParseRetried && i < 2) {
+              jsonParseRetried = true;
+              lastErr = "Invalid JSON in model response — retrying with strict prompt";
+              console.warn("[AI Form Filler] JSON parse failure, retrying strictly", {
+                model,
+                snippet: content.slice(0, 120),
+              });
+              // Replace last user message with strict JSON demand for the next attempt
+              const strictMessages = [
+                ...baseMessages,
+                {
+                  role: "user" as const,
+                  content:
+                    "Your last response was not valid JSON. Return ONLY a minified JSON object with no markdown, no commentary, no code fences.",
+                },
+              ];
+              const retryResult = await perform(model, maxTokens, strictMessages);
+              if (retryResult.ok) {
+                const retryContent = retryResult.data?.choices?.[0]?.message?.content;
+                if (retryContent) {
+                  try {
+                    return parseLlmValues(retryContent);
+                  } catch {
+                    lastErr = "JSON parse failed even after strict retry";
+                  }
+                }
+              }
+              break;
+            }
+            lastErr = "Invalid JSON in model response";
+            break;
+          }
         }
       }
       throw new Error(`[model=${model}] ${lastErr || "unknown provider failure"}`);

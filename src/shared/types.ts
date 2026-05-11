@@ -64,6 +64,30 @@ export interface FieldDescriptor {
   fieldLocale?: string;
 }
 
+export type FormMemory = {
+  formType?: string;
+  locale?: string;
+  pageTitle?: string;
+  jobCategory?: string;
+  employmentType?: string;
+  hiringCount?: string;
+  agencyJob?: string;
+  countryLanguage?: string;
+  companySummary?: string;
+  location?: string;
+  transfer?: string;
+  workStyle?: string;
+  salaryType?: string;
+  monthlyWorkHours?: string;
+  overtime?: string;
+  candidateProfile?: string;
+};
+
+export type ChunkDescriptor = {
+  sectionName: string;
+  fieldSids: string[];
+};
+
 export interface FillSnapshot {
   pageTitle: string;
   pageUrl: string;
@@ -73,6 +97,9 @@ export interface FillSnapshot {
   maxRounds: number;
   fields: FieldDescriptor[];
   heuristicSummary?: { syntheticId: string; value: string }[];
+  chunkSection?: string;
+  chunkCtx?: Partial<FormMemory>;
+  retryOnly?: string[];
 }
 
 export interface LlmFillRequest {
