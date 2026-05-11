@@ -23,6 +23,10 @@
     "message": "API key*",
     "description": "Settings label"
   },
+  "labelProvider": {
+    "message": "Provider*",
+    "description": "LLM provider"
+  },
   "labelRememberKey": {
     "message": "Remember key across browser restarts",
     "description": "Checkbox"

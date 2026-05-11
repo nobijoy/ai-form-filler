@@ -33,7 +33,10 @@ function settle(ms: number): Promise<void> {
 }
 
 function signatureForProgress(fields: FieldDescriptor[]): string {
-  const ids = fields.map((f) => f.syntheticId).sort().join(",");
+  const ids = fields
+    .map((f) => `${f.syntheticId}:${f.labelText ?? ""}:${f.formPurpose ?? ""}`)
+    .sort()
+    .join(",");
   return `${location.href}|${document.title}|${ids}`;
 }
 
@@ -128,6 +131,7 @@ function maybeClickNextControl(): boolean {
 
       // Text hints are only weak boosts/penalties now.
       if (/\b(next|continue|proceed|suivant|continuer|weiter)\b/i.test(txt)) score += 2;
+      if (/^(next|continue|suivant|continuer|weiter|volgende|seguinte)\b/i.test(txt)) score += 2;
       if (/\b(submit|finish|complete|send|back|previous|cancel|soumettre|terminer|retour)\b/i.test(txt))
         score -= 3;
 
@@ -147,6 +151,22 @@ function maybeClickNextControl(): boolean {
   }
 }
 
+async function waitForProgressChange(
+  beforeSig: string,
+  settleMs: number,
+  timeoutMs = 3500,
+): Promise<boolean> {
+  const waitMs = Math.max(250, settleMs);
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    await settle(waitMs);
+    const scan = scanFormFields();
+    const currentSig = signatureForProgress(scan.fields.filter((f) => f.visible && !f.disabled));
+    if (currentSig !== beforeSig) return true;
+  }
+  return false;
+}
+
 function sendMessage<T>(msg: unknown): Promise<T> {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(msg, (response) => {
@@ -162,6 +182,10 @@ export async function runFillOrchestration(
   onStatus?: (s: string) => void,
 ): Promise<void> {
   const maxSteps = settings.autoNextEnabled ? Math.max(1, settings.autoNextMaxSteps) : 1;
+  const maxAiRequestsPerRun = Math.max(1, settings.maxRounds) * Math.max(1, maxSteps);
+  let aiRequestsMade = 0;
+  let aiErrorCount = 0;
+  const aiErrorMessages: string[] = [];
 
   for (let step = 0; step < maxSteps; step++) {
     for (let round = 0; round < settings.maxRounds; round++) {
@@ -225,9 +249,20 @@ export async function runFillOrchestration(
         type: "LLM_FILL",
         snapshot,
       });
+      aiRequestsMade += 1;
 
       if (!resp.ok) {
-        onStatus?.(`AI error (continuing): ${resp.error || "LLM request failed."}`);
+        const errMsg = resp.error || "LLM request failed.";
+        aiErrorCount += 1;
+        aiErrorMessages.push(errMsg);
+        onStatus?.(`AI error ${aiErrorCount}/3: ${errMsg}`);
+        if (aiErrorCount >= 3) {
+          const details = aiErrorMessages
+            .map((m, idx) => `${idx + 1}. ${m}`)
+            .slice(0, 3)
+            .join("\n");
+          throw new Error(`Stopped after 3 failed AI requests.\n${details}`);
+        }
         await settle(settings.settleMs);
         continue;
       }
@@ -237,6 +272,10 @@ export async function runFillOrchestration(
       }
 
       await settle(settings.settleMs);
+      if (aiRequestsMade >= maxAiRequestsPerRun) {
+        onStatus?.("Stopped at AI request safety limit for this run.");
+        return;
+      }
     }
 
     if (!settings.autoNextEnabled || step >= maxSteps - 1) {
@@ -257,11 +296,8 @@ export async function runFillOrchestration(
       return;
     }
 
-    await settle(Math.max(250, settings.settleMs + 150));
-    const afterScan = scanFormFields();
-    const afterCandidates = filterCandidates(afterScan.fields, settings);
-    const afterSig = signatureForProgress(afterCandidates);
-    if (beforeSig === afterSig) {
+    const changed = await waitForProgressChange(beforeSig, settings.settleMs);
+    if (!changed) {
       onStatus?.("Next-step click did not change the page. Auto-next stopped.");
       return;
     }

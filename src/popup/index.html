@@ -13,8 +13,15 @@
 
       <section class="panel">
         <h2 class="panelTitle">Connection</h2>
+        <label class="lbl" for="provider" id="lblProvider"></label>
+        <select id="provider" class="inp"></select>
+
         <label class="lbl" for="apiKey" id="lblApiKey"></label>
-        <input id="apiKey" type="password" class="inp" autocomplete="off" />
+        <div class="key-row">
+          <input id="apiKey" type="password" class="inp" autocomplete="off" />
+          <button type="button" id="btnTestKey" class="btn btn-test">Test</button>
+        </div>
+        <p class="subhint" id="keyStatus"></p>
 
         <label class="chk"
           ><input type="checkbox" id="rememberKey" /> <span id="lblRemember"></span
@@ -87,6 +94,14 @@
       <button type="button" id="btnFill" class="btn fill"></button>
       <p id="status" class="status" role="status"></p>
     </main>
+
+    <dialog id="errorModal" class="modal" aria-labelledby="errorModalTitle">
+      <h2 id="errorModalTitle" class="modalTitle">Fill Error</h2>
+      <pre id="errorModalBody" class="modalBody"></pre>
+      <div class="modalActions">
+        <button type="button" id="btnCloseErrorModal" class="btn primary">Close</button>
+      </div>
+    </dialog>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

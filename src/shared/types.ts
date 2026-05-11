@@ -1,8 +1,10 @@
 export type FillMode = "hybrid" | "ai_only" | "heuristics_only";
+export type LlmProviderId = "openrouter" | "groq" | "google" | "cerebras";
 
 export type FillLanguagePolicy = "auto" | "override";
 
 export interface ExtensionSettings {
+  provider: LlmProviderId;
   baseUrl: string;
   model: string;
   fillMode: FillMode;
@@ -18,6 +20,7 @@ export interface ExtensionSettings {
 }
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
+  provider: "openrouter",
   baseUrl: "https://openrouter.ai/api/v1",
   model: "openrouter/free",
   fillMode: "hybrid",

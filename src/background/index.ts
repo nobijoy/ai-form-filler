@@ -1,6 +1,14 @@
-import { callLlmForFill, getFreeOpenRouterModels } from "./llm";
-import { clearApiKey, getApiKey, getSettings, saveApiKey, saveSettings } from "./storage";
-import type { ExtensionSettings, FillMode, FillSnapshot, LlmFillResponse } from "../shared/types";
+import { callLlmForFill, getProviderModels, testProviderKey } from "./llm";
+import { PROVIDERS } from "../shared/providers";
+import {
+  clearApiKey,
+  clearEphemeralBrowserSessionKey,
+  getApiKey,
+  getSettings,
+  saveApiKey,
+  saveSettings,
+} from "./storage";
+import type { ExtensionSettings, FillMode, FillSnapshot, LlmFillResponse, LlmProviderId } from "../shared/types";
 
 const MENU_ID = "aff_fill_now";
 let contextMenuRefresh: Promise<void> = Promise.resolve();
@@ -10,6 +18,7 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onStartup.addListener(() => {
+  void clearEphemeralBrowserSessionKey();
   void refreshContextMenu();
 });
 
@@ -65,8 +74,14 @@ void refreshContextMenu();
 function handleGetSettings(sendResponse: (r: unknown) => void): void {
   void (async () => {
     const settings = await getSettings();
-    const k = await getApiKey();
-    sendResponse({ settings, hasApiKey: !!(k && k.length > 0) });
+    const hasKeys: Partial<Record<LlmProviderId, boolean>> = {};
+    const keyPrefixes: Partial<Record<LlmProviderId, string>> = {};
+    for (const provider of Object.keys(PROVIDERS) as LlmProviderId[]) {
+      const key = await getApiKey(provider);
+      hasKeys[provider] = !!(key && key.length > 0);
+      if (key && key.length > 0) keyPrefixes[provider] = key.slice(0, 6);
+    }
+    sendResponse({ settings, hasApiKey: !!hasKeys[settings.provider], hasKeys, keyPrefixes });
   })();
 }
 
@@ -95,10 +110,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     void handleLlmFill(message.snapshot as FillSnapshot).then(sendResponse);
     return true;
   }
-  if (message?.type === "GET_OPENROUTER_MODELS") {
+  if (message?.type === "GET_PROVIDER_MODELS") {
     void (async () => {
-      const key = await getApiKey();
-      const result = await getFreeOpenRouterModels(key);
+      const { provider } = message as { provider: LlmProviderId };
+      const key = await getApiKey(provider);
+      const result = await getProviderModels(provider, key);
       sendResponse(result);
     })();
     return true;
@@ -115,18 +131,43 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "SAVE_API_KEY") {
     void (async () => {
       const { apiKey, rememberAcrossRestarts } = message as {
+        provider: LlmProviderId;
         apiKey: string;
         rememberAcrossRestarts: boolean;
       };
       await saveSettings({ rememberKeyAcrossRestarts: rememberAcrossRestarts });
-      if (apiKey.length > 0) await saveApiKey(apiKey, rememberAcrossRestarts);
-      else await clearApiKey();
+      const provider = (message as { provider: LlmProviderId }).provider;
+      if (apiKey.length > 0) await saveApiKey(provider, apiKey, rememberAcrossRestarts);
+      else await clearApiKey(provider);
       sendResponse({ ok: true });
     })();
     return true;
   }
+  if (message?.type === "TEST_API_KEY") {
+    void (async () => {
+      const { provider } = message as { provider: LlmProviderId };
+      const settings = await getSettings();
+      const key = await getApiKey(provider);
+      if (!key) {
+        sendResponse({ ok: false, error: "No key saved for this provider. Enter a key and click Save first." });
+        return;
+      }
+      const baseUrl =
+        settings.provider === provider
+          ? settings.baseUrl
+          : PROVIDERS[provider].defaultBaseUrl;
+      const model = PROVIDERS[provider].defaultModel;
+      const keyPrefix = key.slice(0, 6);
+      console.debug("[AI Form Filler] testing provider key", { provider, baseUrl, model, keyPrefix });
+      const result = await testProviderKey(provider, key, baseUrl, model);
+      sendResponse({ ...result, keyPrefix });
+    })();
+    return true;
+  }
   if (message?.type === "CLEAR_API_KEY") {
-    void clearApiKey().then(() => sendResponse({ ok: true }));
+    void clearApiKey((message as { provider?: LlmProviderId }).provider).then(() =>
+      sendResponse({ ok: true }),
+    );
     return true;
   }
   return false;
@@ -145,11 +186,15 @@ async function handleLlmFill(snapshot: FillSnapshot): Promise<LlmFillResponse> {
   if (settings.fillMode === "heuristics_only") {
     return { ok: true, values: {}, skipped: true };
   }
-  const key = await getApiKey();
-  if (!key) {
+  const apiKeys: Partial<Record<LlmProviderId, string>> = {};
+  for (const provider of Object.keys(PROVIDERS) as LlmProviderId[]) {
+    const key = await getApiKey(provider);
+    if (key) apiKeys[provider] = key;
+  }
+  if (!apiKeys[settings.provider]) {
     return { ok: false, error: "No API key configured." };
   }
-  const result = await callLlmForFill(snapshot, settings, key);
+  const result = await callLlmForFill(snapshot, settings, apiKeys);
   if (!result.ok) return { ok: false, error: result.error };
   return { ok: true, values: result.values };
 }
