@@ -1,15 +1,7 @@
 import type { FieldDescriptor } from "./types";
+import { isFillableField } from "./fillable";
 
 const PAYMENT_AUTOCOMPLETE = /^(cc-|card)/i;
-const BLOCKED_TYPES = new Set([
-  "password",
-  "hidden",
-  "submit",
-  "button",
-  "reset",
-  "image",
-  "file",
-]);
 
 const HEURISTIC_AUTOCOMPLETE = new Set([
   "email",
@@ -56,10 +48,10 @@ function randomTag(): string {
 }
 
 export function classifyField(f: FieldDescriptor): "heuristic" | "ai" {
-  if (!f.visible || f.disabled) return "ai";
+  if (!isFillableField(f)) return "ai";
   const ac = (f.autoComplete || "").toLowerCase().split(/\s+/)[0];
   if (PAYMENT_AUTOCOMPLETE.test(f.autoComplete || "")) return "ai";
-  if (f.inputType && BLOCKED_TYPES.has(f.inputType)) return "ai";
+  if (f.inputType === "password") return "ai";
   if (f.tag === "select" || f.radioGroup) return "ai";
   if (f.inputType === "checkbox") return "ai";
 

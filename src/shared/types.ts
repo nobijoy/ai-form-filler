@@ -62,6 +62,8 @@ export interface FieldDescriptor {
   disabled: boolean;
   visible: boolean;
   fieldLocale?: string;
+  /** When set, this text/textarea is only filled if the controlling checkbox is selected. */
+  controllingCheckboxSid?: string;
 }
 
 export type FormMemory = {

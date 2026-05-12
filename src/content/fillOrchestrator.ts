@@ -1,7 +1,8 @@
-import { applyValuesToTargets } from "./apply";
+import { applyValuesToTargets, reconcileAppliedValues } from "./apply";
 import type { ScanResult } from "./scan";
 import { resolveDocumentLocale, resolveFillLocale, scanFormFields } from "./scan";
 import { parsePersona, tryHeuristicValue } from "../shared/heuristics";
+import { isFillableField } from "../shared/fillable";
 import type {
   ChunkDescriptor,
   ExtensionSettings,
@@ -16,6 +17,17 @@ import type {
 // ---------------------------------------------------------------------------
 
 const MAX_ROUNDS = 8;
+const AI_ONLY_MAX_FORM_STEPS = 10;
+
+const IDENTITY_FIELD_PATTERN =
+  /first.?name|last.?name|given.?name|family.?name|full.?name|prénom|prenom|nom|e-?mail|courriel|téléphone|telephone|phone|mobile|sms/i;
+const CONTACT_FIELD_PATTERN =
+  /address|adresse|postal|zip|ville|city|pays|country|street|rue|code postal|complément/i;
+const PAYMENT_FIELD_PATTERN = /card|cvv|cvc|payment|paiement|billing|facturation|iban/i;
+const NEXT_BUTTON_PATTERN =
+  /(next|continue|proceed|suivant|continuer|étape suivante|etape suivante|passer à l'étape|passer a l'etape|weiter|volgende|seguinte)/i;
+const FINAL_SUBMIT_PATTERN =
+  /\b(place.?order|pay now|commander|payer|order now|complete order|finish order|finaliser|confirmer la commande|valider la commande)\b/i;
 
 const SECTION_ORDER = [
   "basic_info",
@@ -23,6 +35,13 @@ const SECTION_ORDER = [
   "benefits_holidays",
   "candidate_requirements",
   "appeal_selection_contact",
+] as const;
+
+const FIELD_BUCKET_ORDER = [
+  "required_priority",
+  "required_other",
+  "optional_priority",
+  ...SECTION_ORDER,
 ] as const;
 
 const SECTION_CONTEXT_DEPENDENCIES: Record<string, (keyof FormMemory)[]> = {
@@ -81,10 +100,13 @@ const CBG_HOLIDAY_TITLE = /休日|holiday|休暇/i;
 type ChunkStatus =
   | "pending"
   | "in_progress"
+  | "retry_pending"
   | "rate_limited"
   | "completed"
   | "partial"
   | "failed";
+
+const RATE_LIMIT_BACKOFF_MS = 30_000;
 
 interface ChunkState {
   id: string;
@@ -121,6 +143,7 @@ function makeChunkState(idx: number, desc: ChunkDescriptor): ChunkState {
 function findNextChunk(chunks: ChunkState[]): ChunkState | null {
   return (
     chunks.find((c) => c.status === "partial") ??
+    chunks.find((c) => c.status === "retry_pending") ??
     chunks.find((c) => c.status === "pending") ??
     null
   );
@@ -141,6 +164,37 @@ function logChunk(chunk: ChunkState, detail?: Record<string, unknown>): void {
 // Helpers
 // ---------------------------------------------------------------------------
 
+function fieldHintText(field: FieldDescriptor): string {
+  return [
+    field.labelText,
+    field.ariaLabel,
+    field.placeholder,
+    field.name,
+    field.id,
+    field.autoComplete,
+    field.surroundingText,
+    field.formPurpose,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function isPriorityFieldHint(hint: string): boolean {
+  return (
+    IDENTITY_FIELD_PATTERN.test(hint) ||
+    CONTACT_FIELD_PATTERN.test(hint) ||
+    PAYMENT_FIELD_PATTERN.test(hint)
+  );
+}
+
+function classifyFieldBucket(field: FieldDescriptor): string {
+  const hint = fieldHintText(field);
+  const priority = isPriorityFieldHint(hint);
+  if (field.required) return priority ? "required_priority" : "required_other";
+  if (priority) return "optional_priority";
+  return detectSection(field);
+}
+
 function detectSection(f: FieldDescriptor): string {
   const text = [f.labelText, f.surroundingText, f.formPurpose, f.placeholder]
     .filter(Boolean)
@@ -152,18 +206,20 @@ function detectSection(f: FieldDescriptor): string {
 }
 
 function buildChunks(fields: FieldDescriptor[]): ChunkDescriptor[] {
-  const bySection: Record<string, string[]> = {};
-  for (const s of SECTION_ORDER) bySection[s] = [];
-
-  for (const f of fields) {
-    const section = detectSection(f);
-    bySection[section].push(f.syntheticId);
+  const byBucket: Record<string, string[]> = {};
+  for (const field of fields) {
+    const bucket = classifyFieldBucket(field);
+    if (!byBucket[bucket]) byBucket[bucket] = [];
+    byBucket[bucket].push(field.syntheticId);
   }
 
-  return SECTION_ORDER.filter((s) => bySection[s].length > 0).map((s) => ({
-    sectionName: s,
-    fieldSids: bySection[s],
-  }));
+  const orderedBuckets = [...new Set([...FIELD_BUCKET_ORDER, ...SECTION_ORDER])];
+  return orderedBuckets
+    .filter((bucket) => (byBucket[bucket]?.length ?? 0) > 0)
+    .map((bucket) => ({
+      sectionName: bucket,
+      fieldSids: byBucket[bucket]!,
+    }));
 }
 
 function pickCtxForSection(sectionName: string, memory: FormMemory): Partial<FormMemory> {
@@ -191,31 +247,46 @@ function maxForCbGroup(groupTitle: string, itemCount: number, allLabels: string[
   return itemCount;
 }
 
-/**
- * Extract the suggested retry delay (ms) from a rate-limit error message.
- * Falls back to 10 s when no delay is embedded.
- */
-function extractRetryAfterMs(errMsg: string): number {
-  const secMatch = errMsg.match(/try again in (\d+\.?\d*)\s*s/i);
-  if (secMatch) return Math.ceil(parseFloat(secMatch[1]) * 1000) + 500;
-  const msMatch = errMsg.match(/retry[- ]?after[: ]+(\d+)\s*ms/i);
-  if (msMatch) return parseInt(msMatch[1], 10) + 500;
-  return 10_000;
-}
-
 function isFieldEmpty(f: FieldDescriptor): boolean {
   if (f.inputType === "checkbox") return f.currentValue !== "true";
   if (f.inputType === "radio") return !f.currentValue?.trim();
   return !String(f.currentValue ?? "").trim();
 }
 
+function isFieldAppliedOnDom(field: FieldDescriptor, appliedValue: string): boolean {
+  if (field.inputType === "checkbox") {
+    return appliedValue === "true" && field.currentValue === "true";
+  }
+  if (field.inputType === "radio") {
+    return field.currentValue === appliedValue;
+  }
+  return String(field.currentValue ?? "").trim() === String(appliedValue).trim();
+}
+
+function getUnresolvedCandidates(
+  fields: FieldDescriptor[],
+  settings: ExtensionSettings,
+  appliedValues: Record<string, string>,
+): FieldDescriptor[] {
+  return fields.filter((field) => {
+    if (!isFillableField(field)) return false;
+
+    const appliedValue = appliedValues[field.syntheticId];
+    if (appliedValue !== undefined) {
+      return !isFieldAppliedOnDom(field, appliedValue);
+    }
+
+    if (!settings.fillEmptyOnly) return true;
+    return isFieldEmpty(field);
+  });
+}
+
 function filterCandidates(
   fields: FieldDescriptor[],
   settings: ExtensionSettings,
+  appliedValues: Record<string, string> = {},
 ): FieldDescriptor[] {
-  return fields.filter(
-    (f) => f.visible && !f.disabled && (!settings.fillEmptyOnly || isFieldEmpty(f)),
-  );
+  return getUnresolvedCandidates(fields, settings, appliedValues);
 }
 
 function settle(ms: number): Promise<void> {
@@ -226,6 +297,10 @@ function settle(ms: number): Promise<void> {
   });
 }
 
+function visibleFillableFields(fields: FieldDescriptor[]): FieldDescriptor[] {
+  return fields.filter((field) => isFillableField(field));
+}
+
 function signatureForProgress(fields: FieldDescriptor[]): string {
   const ids = fields
     .map((f) => `${f.syntheticId}:${f.labelText ?? ""}:${f.formPurpose ?? ""}`)
@@ -234,8 +309,33 @@ function signatureForProgress(fields: FieldDescriptor[]): string {
   return `${location.href}|${document.title}|${ids}`;
 }
 
-function requiredUnfilledCount(fields: FieldDescriptor[]): number {
-  return fields.filter((f) => f.required && f.visible && !f.disabled && isFieldEmpty(f)).length;
+function requiredUnfilledCount(
+  fields: FieldDescriptor[],
+  settings: ExtensionSettings,
+  appliedValues: Record<string, string>,
+): number {
+  return getUnresolvedCandidates(fields, settings, appliedValues).filter((field) => field.required)
+    .length;
+}
+
+function detectAppliedFieldResets(
+  fields: FieldDescriptor[],
+  appliedValues: Record<string, string>,
+): string[] {
+  const fieldMap = new Map(fields.map((f) => [f.syntheticId, f]));
+  const resetSids: string[] = [];
+
+  for (const [sid, value] of Object.entries(appliedValues)) {
+    const field = fieldMap.get(sid);
+    if (!field) continue;
+    if (field.inputType === "checkbox") {
+      if (value === "true" && field.currentValue !== "true") resetSids.push(sid);
+      continue;
+    }
+    if (field.currentValue !== value) resetSids.push(sid);
+  }
+
+  return resetSids;
 }
 
 function textForNext(el: Element): string {
@@ -289,7 +389,13 @@ function detectActiveForm(): HTMLFormElement | null {
   return best?.form ?? null;
 }
 
-function maybeClickNextControl(): boolean {
+function isFinalSubmitControl(el: Element): boolean {
+  const combined = `${textForNext(el)} ${attrBag(el)}`;
+  if (NEXT_BUTTON_PATTERN.test(combined)) return false;
+  return FINAL_SUBMIT_PATTERN.test(combined);
+}
+
+function maybeClickNextControl(options: { allowFinalSubmit: boolean }): boolean {
   const candidates = Array.from(
     document.querySelectorAll<HTMLElement>(
       "button, input[type='button'], input[type='submit'], a[role='button'], [role='button'], a[rel='next']",
@@ -308,53 +414,146 @@ function maybeClickNextControl(): boolean {
       const attrs = attrBag(el);
       const txt = textForNext(el);
       const rect = el.getBoundingClientRect();
+      const combined = `${txt} ${attrs}`;
+
+      if (!options.allowFinalSubmit && isFinalSubmitControl(el)) return { el, score: -100 };
 
       if (activeForm && activeForm.contains(el)) score += 5;
-      if (el instanceof HTMLButtonElement && (el.type || "submit") === "submit") score += 2;
-      if (el instanceof HTMLInputElement && el.type === "submit") score += 2;
-      if (el.matches("[rel='next'], [data-next], [data-step-next], [aria-controls]")) score += 3;
+      if (el.matches("[rel='next'], [data-next], [data-step-next], [aria-controls]")) score += 4;
 
       score += (rect.left + rect.width / 2) / viewportW;
       score += (rect.top + rect.height / 2) / viewportH;
 
-      if (/\b(back|prev|previous|cancel|reset)\b/.test(attrs)) score -= 6;
-      if (/\b(submit|finish|complete|done|final|place-order|checkout)\b/.test(attrs)) score -= 4;
+      if (/\b(back|prev|previous|cancel|reset|retour|précédent|precedent)\b/i.test(combined)) {
+        score -= 8;
+      }
 
-      if (/\b(next|continue|proceed|suivant|continuer|weiter)\b/i.test(txt)) score += 2;
-      if (/^(next|continue|suivant|continuer|weiter|volgende|seguinte)\b/i.test(txt)) score += 2;
-      if (/\b(submit|finish|complete|send|back|previous|cancel|soumettre|terminer|retour)\b/i.test(txt))
-        score -= 3;
+      if (NEXT_BUTTON_PATTERN.test(combined)) score += 8;
+      if (/^(next|continue|suivant|continuer|weiter|volgende|seguinte)\b/i.test(txt)) score += 5;
+
+      if (FINAL_SUBMIT_PATTERN.test(combined)) score -= options.allowFinalSubmit ? 1 : 10;
 
       return { el, score };
     })
+    .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score);
 
   const best = scored[0];
-  if (!best || best.score < 1.5) return false;
+  if (!best || best.score < 1) return false;
 
   try {
     best.el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     if (best.el instanceof HTMLElement) best.el.click();
+    console.debug("[AI Form Filler] clicked next-step control", {
+      text: textForNext(best.el).slice(0, 80),
+      score: best.score,
+    });
     return true;
   } catch {
     return false;
   }
 }
 
-async function waitForProgressChange(
+function appendRemainingChunk(
+  chunks: ChunkState[],
+  candidates: FieldDescriptor[],
+): ChunkState[] {
+  const candidateSids = candidates.map((field) => field.syntheticId);
+  const openChunk = chunks.find(
+    (chunk) =>
+      (chunk.status === "pending" ||
+        chunk.status === "partial" ||
+        chunk.status === "retry_pending") &&
+      chunk.fieldSids.some((sid) => candidateSids.includes(sid)),
+  );
+  if (openChunk) return chunks;
+
+  const chunkKey = candidateSids.slice().sort().join("|");
+  if (
+    chunks.some(
+      (chunk) => chunk.fieldSids.slice().sort().join("|") === chunkKey,
+    )
+  ) {
+    return chunks;
+  }
+
+  return [
+    ...chunks,
+    makeChunkState(chunks.length, {
+      sectionName: "retry",
+      fieldSids: candidateSids,
+    }),
+  ];
+}
+
+async function waitForFormStepChange(
+  beforeFieldIds: Set<string>,
   beforeSig: string,
   settleMs: number,
-  timeoutMs = 3500,
+  timeoutMs = 8000,
 ): Promise<boolean> {
+  const startUrl = location.href;
   const waitMs = Math.max(250, settleMs);
   const startedAt = Date.now();
+
   while (Date.now() - startedAt < timeoutMs) {
     await settle(waitMs);
+    if (location.href !== startUrl) return true;
+
     const scan = scanFormFields();
-    const currentSig = signatureForProgress(scan.fields.filter((f) => f.visible && !f.disabled));
-    if (currentSig !== beforeSig) return true;
+    const visibleFields = visibleFillableFields(scan.fields);
+    const currentIds = new Set(visibleFields.map((field) => field.syntheticId));
+    for (const sid of currentIds) {
+      if (!beforeFieldIds.has(sid)) return true;
+    }
+    if (currentIds.size !== beforeFieldIds.size) return true;
+    if (signatureForProgress(visibleFields) !== beforeSig) return true;
   }
+
   return false;
+}
+
+async function advanceFormStep(
+  settings: ExtensionSettings,
+  appliedValues: Record<string, string>,
+  allowFinalSubmit: boolean,
+  onStatus?: (s: string) => void,
+): Promise<boolean> {
+  const scan = scanFormFields();
+  await reconcileAppliedValues(scan.targets, appliedValues, {
+    fields: scan.fields,
+    settleMs: settings.settleMs,
+  });
+
+  const unresolved = getUnresolvedCandidates(scan.fields, settings, appliedValues);
+  const requiredLeft = unresolved.filter((field) => field.required).length;
+  if (requiredLeft > 0) {
+    console.debug("[AI Form Filler] advance blocked by required fields", { requiredLeft });
+    return false;
+  }
+
+  const visibleFields = visibleFillableFields(scan.fields);
+  const beforeFieldIds = new Set(visibleFields.map((field) => field.syntheticId));
+  const beforeSig = signatureForProgress(visibleFields);
+  if (!maybeClickNextControl({ allowFinalSubmit })) {
+    console.debug("[AI Form Filler] no next-step control found");
+    return false;
+  }
+
+  onStatus?.("Advancing to the next form step…");
+  await settle(Math.max(settings.settleMs, 400));
+  const changed = await waitForFormStepChange(beforeFieldIds, beforeSig, settings.settleMs);
+  if (!changed) {
+    onStatus?.("Next-step click did not change the visible form.");
+    return false;
+  }
+
+  const afterScan = scanFormFields();
+  await reconcileAppliedValues(afterScan.targets, appliedValues, {
+    fields: afterScan.fields,
+    settleMs: settings.settleMs,
+  });
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -409,13 +608,25 @@ const PLACEHOLDER_BLOCKLIST = new Set([
   "ここに入力",
   "Enter text",
   "Type here",
+  "Code porte, etc.",
+  "Code porte",
+  "Exemple",
+  "Example",
+  "Saisir",
+  "Saisissez",
+  "Votre texte",
 ]);
 
 function isPlaceholderValue(value: string, field: FieldDescriptor): boolean {
   const v = value.trim();
   if (!v) return true;
   if (field.placeholder && v === field.placeholder.trim()) return true;
-  return PLACEHOLDER_BLOCKLIST.has(v);
+  if (field.placeholder && v.toLowerCase() === field.placeholder.trim().toLowerCase()) return true;
+  if (PLACEHOLDER_BLOCKLIST.has(v)) return true;
+  if (PLACEHOLDER_BLOCKLIST.has(v.toLowerCase())) return true;
+  if (/^code porte\b/i.test(v)) return true;
+  if (/^exemple\b/i.test(v)) return true;
+  return false;
 }
 
 /**
@@ -435,6 +646,7 @@ function isPlaceholderValue(value: string, field: FieldDescriptor): boolean {
 function validateAiResponse(
   rawValues: Record<string, string>,
   chunkFields: FieldDescriptor[],
+  appliedValues: Record<string, string> = {},
 ): {
   valid: Record<string, string>;
   rejectedSids: string[];
@@ -469,6 +681,15 @@ function validateAiResponse(
     if (sid === "_ctx") continue;
     const field = fieldMap.get(sid);
     if (!field || field.inputType !== "checkbox") continue;
+    if (value !== "true" && value !== "false") {
+      console.debug("[AI Form Filler] validate: non-boolean checkbox rejected", {
+        sid,
+        value,
+        required: field.required,
+      });
+      if (field.required) rejectedSids.push(sid);
+      continue;
+    }
     if (value !== "true") continue;
     const grp = field.formPurpose?.trim() ?? "";
     if (grp && cbgGroups.has(grp)) {
@@ -517,6 +738,20 @@ function validateAiResponse(
     if (!field) continue;
     if (field.inputType === "checkbox") continue; // handled above
     if (typeof value !== "string") continue;
+
+    if (field.controllingCheckboxSid) {
+      const controllerValue =
+        valid[field.controllingCheckboxSid] ??
+        rawValues[field.controllingCheckboxSid] ??
+        appliedValues[field.controllingCheckboxSid];
+      if (controllerValue !== "true") {
+        console.debug("[AI Form Filler] validate: dependent text skipped without selected checkbox", {
+          sid,
+          controllerSid: field.controllingCheckboxSid,
+        });
+        continue;
+      }
+    }
 
     // Empty string and placeholder copies
     if (isPlaceholderValue(value, field)) {
@@ -615,40 +850,11 @@ export async function runFillOrchestration(
   settings: ExtensionSettings,
   onStatus?: (s: string) => void,
 ): Promise<void> {
-  const maxSteps = settings.autoNextEnabled ? Math.max(1, settings.autoNextMaxSteps) : 1;
   const safeMaxRounds = Math.min(Math.max(1, settings.maxRounds), MAX_ROUNDS);
+  const appliedValues: Record<string, string> = {};
 
-  for (let step = 0; step < maxSteps; step++) {
-    await runFillStep(settings, safeMaxRounds, step, maxSteps, onStatus);
-
-    if (!settings.autoNextEnabled || step >= maxSteps - 1) break;
-
-    const finalScan = scanFormFields();
-    const finalCandidates = filterCandidates(finalScan.fields, settings);
-    const requiredLeft = requiredUnfilledCount(finalCandidates);
-    if (requiredLeft > 0) {
-      onStatus?.(`Stopped auto-next: ${requiredLeft} required field(s) still empty.`);
-      return;
-    }
-
-    const beforeSig = signatureForProgress(finalCandidates);
-    if (!maybeClickNextControl()) {
-      onStatus?.("No next-step button found. Auto-next stopped.");
-      return;
-    }
-
-    const changed = await waitForProgressChange(beforeSig, settings.settleMs);
-    if (!changed) {
-      onStatus?.("Next-step click did not change the page. Auto-next stopped.");
-      return;
-    }
-  }
-
-  onStatus?.(
-    settings.autoNextEnabled
-      ? `Auto-next stopped after ${Math.max(1, settings.autoNextMaxSteps)} step limit.`
-      : "Fill complete.",
-  );
+  await runFillStep(settings, safeMaxRounds, appliedValues, onStatus);
+  onStatus?.("Fill complete.");
 }
 
 // ---------------------------------------------------------------------------
@@ -658,215 +864,322 @@ export async function runFillOrchestration(
 async function runFillStep(
   settings: ExtensionSettings,
   safeMaxRounds: number,
-  step: number,
-  maxSteps: number,
+  appliedValues: Record<string, string>,
   onStatus?: (s: string) => void,
 ): Promise<void> {
   const docLocale = resolveDocumentLocale();
   const fillLocale = resolveFillLocale("auto", "", docLocale);
-
-  // ── Heuristics pass (hybrid / heuristics_only modes) ────────────────────
-  if (settings.fillMode !== "ai_only") {
-    const scan0: ScanResult = scanFormFields();
-    const candidates0 = filterCandidates(scan0.fields, settings);
-    const persona = parsePersona(settings.personaJson);
-    const heuristicVals: Record<string, string> = {};
-    for (const f of candidates0) {
-      const v = tryHeuristicValue(f, persona);
-      if (v !== null) heuristicVals[f.syntheticId] = v;
-    }
-    if (Object.keys(heuristicVals).length > 0) {
-      applyValuesToTargets(scan0.targets, heuristicVals);
-      await settle(settings.settleMs);
-    }
-  }
-
-  if (settings.fillMode === "heuristics_only") return;
-
-  // ── Initial scan → build chunk states ───────────────────────────────────
-  const scanInit: ScanResult = scanFormFields();
-  const initCandidates = filterCandidates(scanInit.fields, settings);
-
-  if (initCandidates.length === 0) {
-    onStatus?.(`Step ${step + 1}/${maxSteps}: no fillable fields found.`);
-    return;
-  }
+  const allowFinalSubmit = settings.autoNextEnabled;
+  const maxFormSteps =
+    settings.fillMode === "ai_only"
+      ? Math.max(settings.autoNextMaxSteps, AI_ONLY_MAX_FORM_STEPS)
+      : settings.autoNextEnabled
+        ? Math.max(1, settings.autoNextMaxSteps)
+        : 1;
 
   const formMemory: FormMemory = {
     locale: fillLocale || docLocale || undefined,
     pageTitle: document.title || undefined,
   };
 
-  const chunks: ChunkState[] = buildChunks(initCandidates).map((d, i) =>
-    makeChunkState(i, d),
-  );
-
-  let aiErrorCount = 0;
-  const aiErrorMessages: string[] = [];
-
-  console.debug("[AI Form Filler] starting fill step", {
-    step,
-    safeMaxRounds,
-    chunks: chunks.map((c) => ({ id: c.id, fieldCount: c.fieldSids.length })),
-  });
-
-  // ── Round loop ───────────────────────────────────────────────────────────
-  for (let round = 0; round < safeMaxRounds; round++) {
-    const scan: ScanResult = scanFormFields();
-    const candidates = filterCandidates(scan.fields, settings);
-
-    if (candidates.length === 0) {
-      onStatus?.(`Step ${step + 1}/${maxSteps}: done after ${round} round(s) — all fields filled.`);
-      return;
+  for (let formStep = 0; formStep < maxFormSteps; formStep++) {
+    if (settings.fillMode !== "ai_only" && formStep === 0) {
+      const scan0: ScanResult = scanFormFields();
+      const candidates0 = filterCandidates(scan0.fields, settings, appliedValues);
+      const persona = parsePersona(settings.personaJson);
+      const heuristicVals: Record<string, string> = {};
+      for (const field of candidates0) {
+        const value = tryHeuristicValue(field, persona);
+        if (value !== null) heuristicVals[field.syntheticId] = value;
+      }
+      if (Object.keys(heuristicVals).length > 0) {
+        const heuristicApply = await applyValuesToTargets(scan0.targets, heuristicVals);
+        for (const [sid, value] of Object.entries(heuristicApply.applied)) {
+          appliedValues[sid] = value;
+        }
+        await settle(settings.settleMs);
+      }
     }
 
-    // Select the next chunk to work on
-    const activeChunk = findNextChunk(chunks);
-    if (!activeChunk) {
-      onStatus?.(`Step ${step + 1}/${maxSteps}: done after ${round} round(s) — all chunks resolved.`);
-      return;
-    }
+    if (settings.fillMode === "heuristics_only") return;
 
-    const isRetry = activeChunk.status === "partial";
-    const prevStatus = activeChunk.status;
-    activeChunk.status = "in_progress";
+    const scanInit: ScanResult = scanFormFields();
+    const initCandidates = getUnresolvedCandidates(scanInit.fields, settings, appliedValues);
 
-    // Determine which sids to send this round
-    const sidSet = new Set(candidates.map((f) => f.syntheticId));
-    const targetSids = (isRetry ? activeChunk.retrySids : activeChunk.fieldSids).filter((sid) =>
-      sidSet.has(sid),
-    );
-    const chunkFields = candidates.filter((f) => targetSids.includes(f.syntheticId));
+    if (initCandidates.length === 0) {
+      const requiredLeft = requiredUnfilledCount(scanInit.fields, settings, appliedValues);
+      if (requiredLeft > 0) {
+        onStatus?.(`Form step ${formStep + 1}: ${requiredLeft} required field(s) still unresolved.`);
+        return;
+      }
 
-    if (chunkFields.length === 0) {
-      // All fields in this chunk are already filled or gone from DOM
-      activeChunk.status = "completed";
-      logChunk(activeChunk, { reason: "all fields already resolved or gone" });
+      if (formStep >= maxFormSteps - 1) {
+        onStatus?.(`Form step ${formStep + 1}: no fillable fields found.`);
+        return;
+      }
+
+      const advanced = await advanceFormStep(settings, appliedValues, allowFinalSubmit, onStatus);
+      if (!advanced) {
+        onStatus?.("No next-step button found. Fill stopped.");
+        return;
+      }
       continue;
     }
 
-    const sectionName = isRetry ? "retry" : activeChunk.sectionName;
-
-    onStatus?.(
-      `Step ${step + 1}/${maxSteps} — round ${round + 1}/${safeMaxRounds} [${activeChunk.id}${isRetry ? "/retry" : ""}] (${chunkFields.length} fields)…`,
+    let chunks: ChunkState[] = buildChunks(initCandidates).map((descriptor, index) =>
+      makeChunkState(index, descriptor),
     );
 
-    logChunk(activeChunk, {
-      round,
-      isRetry,
-      sectionName,
-      targetSids,
+    let aiErrorCount = 0;
+    const aiErrorMessages: string[] = [];
+
+    console.debug("[AI Form Filler] starting form step", {
+      formStep,
+      safeMaxRounds,
+      chunks: chunks.map((chunk) => ({ id: chunk.id, fieldCount: chunk.fieldSids.length })),
     });
 
-    const chunkCtx = pickCtxForSection(sectionName, formMemory);
+    let stepComplete = false;
 
-    const snapshot: FillSnapshot = {
-      pageTitle: document.title,
-      pageUrl: `${location.origin}${location.pathname}`,
-      documentLocale: docLocale,
-      fillLocale,
-      roundIndex: round,
-      maxRounds: safeMaxRounds,
-      fields: chunkFields,
-      chunkSection: sectionName,
-      chunkCtx: Object.keys(chunkCtx).length > 0 ? chunkCtx : undefined,
-      retryOnly: isRetry ? targetSids : undefined,
-    };
+    for (let round = 0; round < safeMaxRounds; round++) {
+      const scan: ScanResult = scanFormFields();
+      const candidates = getUnresolvedCandidates(scan.fields, settings, appliedValues);
 
-    const resp = await sendMessage<LlmFillResponse>({ type: "LLM_FILL", snapshot });
+      const resetSids = detectAppliedFieldResets(scan.fields, appliedValues);
+      if (resetSids.length > 0) {
+        console.debug("[AI Form Filler] applied fields reset before reconcile", {
+          round,
+          formStep,
+          resetSids,
+          appliedValues,
+        });
+      }
 
-    // ── Error handling ───────────────────────────────────────────────────
-    if (!resp.ok) {
-      const errMsg = resp.error ?? "LLM request failed.";
-      const isRateLimit = /rate.?limit|429|too many request/i.test(errMsg);
+      await reconcileAppliedValues(scan.targets, appliedValues, {
+        fields: scan.fields,
+        settleMs: settings.settleMs,
+      });
 
-      if (isRateLimit) {
-        const backoffMs = extractRetryAfterMs(errMsg);
-        // Restore previous status so this chunk is retried on the next round
-        activeChunk.status = prevStatus;
-        logChunk(activeChunk, { errorType: "rate_limit", backoffMs, errMsg: errMsg.slice(0, 200) });
-        onStatus?.(`Rate limit — waiting ${(backoffMs / 1000).toFixed(1)} s before retry…`);
-        await settle(backoffMs);
+      if (candidates.length === 0) {
+        stepComplete = true;
+        break;
+      }
+
+      const activeChunk = findNextChunk(chunks);
+      if (!activeChunk) {
+        if (candidates.length > 0) {
+          const nextChunks = appendRemainingChunk(chunks, candidates);
+          if (nextChunks === chunks) {
+            stepComplete = true;
+            break;
+          }
+          chunks = nextChunks;
+          continue;
+        }
+        stepComplete = true;
+        break;
+      }
+
+      const isRetry =
+        activeChunk.status === "partial" || activeChunk.status === "retry_pending";
+      const isRateLimitRetry = activeChunk.status === "retry_pending";
+      const prevStatus = activeChunk.status;
+      activeChunk.status = "in_progress";
+
+      const sidSet = new Set(candidates.map((field) => field.syntheticId));
+      const targetSids = (
+        isRetry && !isRateLimitRetry && activeChunk.retrySids.length > 0
+          ? activeChunk.retrySids
+          : activeChunk.fieldSids
+      ).filter((sid) => sidSet.has(sid));
+      const chunkFields = candidates.filter((field) => targetSids.includes(field.syntheticId));
+
+      if (chunkFields.length === 0) {
+        activeChunk.status = "completed";
+        logChunk(activeChunk, { reason: "all fields already resolved or gone" });
         continue;
       }
 
-      activeChunk.status = "failed";
-      aiErrorCount += 1;
-      aiErrorMessages.push(errMsg);
-      logChunk(activeChunk, { errorType: "api_error", errMsg: errMsg.slice(0, 300) });
-      onStatus?.(`AI error ${aiErrorCount}/3: ${errMsg}`);
+      const sectionName =
+        prevStatus === "partial" && activeChunk.retrySids.length > 0
+          ? "retry"
+          : activeChunk.sectionName;
 
-      if (aiErrorCount >= 3) {
-        const details = aiErrorMessages
-          .map((m, idx) => `${idx + 1}. ${m}`)
-          .slice(0, 3)
-          .join("\n");
-        throw new Error(`Stopped after 3 failed AI requests.\n${details}`);
+      onStatus?.(
+        `Form step ${formStep + 1} — round ${round + 1}/${safeMaxRounds} [${activeChunk.id}${isRetry ? "/retry" : ""}] (${chunkFields.length} fields)…`,
+      );
+
+      logChunk(activeChunk, {
+        round,
+        formStep,
+        isRetry,
+        sectionName,
+        targetSids,
+      });
+
+      const chunkCtx = pickCtxForSection(sectionName, formMemory);
+
+      const snapshot: FillSnapshot = {
+        pageTitle: document.title,
+        pageUrl: `${location.origin}${location.pathname}`,
+        documentLocale: docLocale,
+        fillLocale,
+        roundIndex: round,
+        maxRounds: safeMaxRounds,
+        fields: chunkFields,
+        chunkSection: sectionName,
+        chunkCtx: Object.keys(chunkCtx).length > 0 ? chunkCtx : undefined,
+        retryOnly:
+          prevStatus === "partial" && activeChunk.retrySids.length > 0 ? targetSids : undefined,
+      };
+
+      const resp = await sendMessage<LlmFillResponse>({ type: "LLM_FILL", snapshot });
+
+      if (!resp.ok) {
+        const errMsg = resp.error ?? "LLM request failed.";
+        const isRateLimit = /rate.?limit|429|too many request/i.test(errMsg);
+
+        if (isRateLimit) {
+          console.debug("[AI Form Filler] rate limit — preserving appliedValues", {
+            chunkSection: activeChunk.sectionName,
+            appliedValuesBefore: { ...appliedValues },
+          });
+          activeChunk.status = "retry_pending";
+          logChunk(activeChunk, {
+            errorType: "rate_limit",
+            backoffMs: RATE_LIMIT_BACKOFF_MS,
+            errMsg: errMsg.slice(0, 200),
+            appliedValuesBefore: { ...appliedValues },
+          });
+          onStatus?.(`Rate limit — waiting ${(RATE_LIMIT_BACKOFF_MS / 1000).toFixed(0)} s before retry…`);
+          await settle(RATE_LIMIT_BACKOFF_MS);
+          const rescan = scanFormFields();
+          await reconcileAppliedValues(rescan.targets, appliedValues, {
+            fields: rescan.fields,
+            settleMs: settings.settleMs,
+          });
+          console.debug("[AI Form Filler] rate limit — appliedValues after wait", {
+            chunkSection: activeChunk.sectionName,
+            appliedValuesAfter: { ...appliedValues },
+          });
+          continue;
+        }
+
+        activeChunk.status = "failed";
+        aiErrorCount += 1;
+        aiErrorMessages.push(errMsg);
+        logChunk(activeChunk, { errorType: "api_error", errMsg: errMsg.slice(0, 300) });
+        onStatus?.(`AI error ${aiErrorCount}/3: ${errMsg}`);
+
+        if (aiErrorCount >= 3) {
+          const details = aiErrorMessages
+            .map((message, idx) => `${idx + 1}. ${message}`)
+            .slice(0, 3)
+            .join("\n");
+          throw new Error(`Stopped after 3 failed AI requests.\n${details}`);
+        }
+        await settle(settings.settleMs);
+        continue;
       }
+
+      const rawValues = resp.values ?? {};
+      const ctxString = rawValues["_ctx"];
+      const valuesWithoutCtx: Record<string, string> = {};
+      for (const [key, value] of Object.entries(rawValues)) {
+        if (key !== "_ctx") valuesWithoutCtx[key] = value;
+      }
+
+      if (ctxString) {
+        try {
+          const ctxObj = JSON.parse(ctxString) as Record<string, unknown>;
+          mergeCtxIntoMemory(ctxObj, formMemory);
+        } catch {
+          // Not valid JSON — ignore
+        }
+      }
+
+      const { valid, rejectedSids, missingRequiredSids } = validateAiResponse(
+        valuesWithoutCtx,
+        chunkFields,
+        appliedValues,
+      );
+
+      let applyResult = { applied: {} as Record<string, string>, failed: [] as string[] };
+      if (Object.keys(valid).length > 0) {
+        applyResult = await applyValuesToTargets(scan.targets, valid, {
+          fields: chunkFields,
+          settleMs: settings.settleMs,
+        });
+        for (const [sid, value] of Object.entries(applyResult.applied)) {
+          appliedValues[sid] = value;
+        }
+      }
+
+      const appliedNow = Object.keys(applyResult.applied);
+      const applyFailedSids = applyResult.failed;
+      const unresolvedSids = [
+        ...new Set([...rejectedSids, ...missingRequiredSids, ...applyFailedSids]),
+      ];
+
+      activeChunk.appliedSids = [...new Set([...activeChunk.appliedSids, ...appliedNow])];
+      activeChunk.rejectedSids = [
+        ...new Set([...activeChunk.rejectedSids, ...rejectedSids, ...applyFailedSids]),
+      ];
+      activeChunk.missingRequiredSids = missingRequiredSids;
+      activeChunk.retrySids = unresolvedSids;
+
+      if (activeChunk.retrySids.length === 0) {
+        activeChunk.status = "completed";
+      } else {
+        activeChunk.status = "partial";
+        activeChunk.retryCount += 1;
+      }
+
+      logChunk(activeChunk, {
+        appliedNow,
+        rejectedSids,
+        missingRequiredSids,
+        applyFailedSids,
+        retrySids: activeChunk.retrySids,
+        appliedValues: { ...appliedValues },
+        resolvedFields: appliedNow,
+      });
+
       await settle(settings.settleMs);
-      continue;
+
+      const postScan = scanFormFields();
+      await reconcileAppliedValues(postScan.targets, appliedValues, {
+        fields: postScan.fields,
+        settleMs: settings.settleMs,
+      });
     }
 
-    // ── Process successful response ──────────────────────────────────────
-    const rawValues = resp.values ?? {};
+    const finalScan = scanFormFields();
+    const unresolved = getUnresolvedCandidates(finalScan.fields, settings, appliedValues);
+    const requiredLeft = unresolved.filter((field) => field.required).length;
 
-    // Extract _ctx (serialized as JSON string by parseLlmValues)
-    const ctxString = rawValues["_ctx"];
-    const valuesWithoutCtx: Record<string, string> = {};
-    for (const [k, v] of Object.entries(rawValues)) {
-      if (k !== "_ctx") valuesWithoutCtx[k] = v;
-    }
-
-    if (ctxString) {
-      try {
-        const ctxObj = JSON.parse(ctxString) as Record<string, unknown>;
-        mergeCtxIntoMemory(ctxObj, formMemory);
-      } catch {
-        // Not valid JSON — ignore
-      }
-    }
-
-    const { valid, rejectedSids, missingRequiredSids } = validateAiResponse(
-      valuesWithoutCtx,
-      chunkFields,
-    );
-
-    if (Object.keys(valid).length > 0) {
-      applyValuesToTargets(scan.targets, valid);
-    }
-
-    // Update chunk tracking
-    const appliedNow = Object.keys(valid);
-    activeChunk.appliedSids = [...new Set([...activeChunk.appliedSids, ...appliedNow])];
-    activeChunk.rejectedSids = [...new Set([...activeChunk.rejectedSids, ...rejectedSids])];
-    activeChunk.missingRequiredSids = missingRequiredSids;
-    activeChunk.retrySids = [...new Set([...rejectedSids, ...missingRequiredSids])];
-
-    if (activeChunk.retrySids.length === 0) {
-      activeChunk.status = "completed";
-    } else {
-      activeChunk.status = "partial";
-      activeChunk.retryCount += 1;
-    }
-
-    logChunk(activeChunk, {
-      appliedNow,
-      rejectedSids,
-      missingRequiredSids,
-      retrySids: activeChunk.retrySids,
-    });
-
-    await settle(settings.settleMs);
-
-    // Done when every chunk is resolved
-    const allResolved = chunks.every(
-      (c) => c.status === "completed" || c.status === "failed",
-    );
-    if (allResolved) {
-      onStatus?.(`Step ${step + 1}/${maxSteps}: done after ${round + 1} round(s).`);
+    if (requiredLeft > 0) {
+      onStatus?.(`Form step ${formStep + 1}: ${requiredLeft} required field(s) still unresolved.`);
       return;
     }
-  }
 
-  onStatus?.(`Step ${step + 1}/${maxSteps}: reached round limit (${safeMaxRounds}).`);
+    if (!stepComplete) {
+      const advancedAfterLimit = await advanceFormStep(
+        settings,
+        appliedValues,
+        allowFinalSubmit,
+        onStatus,
+      );
+      if (advancedAfterLimit) continue;
+      onStatus?.(`Form step ${formStep + 1}: reached round limit (${safeMaxRounds}).`);
+      return;
+    }
+
+    if (formStep >= maxFormSteps - 1) return;
+
+    const advanced = await advanceFormStep(settings, appliedValues, allowFinalSubmit, onStatus);
+    if (!advanced) {
+      onStatus?.("No next-step button found. Fill stopped.");
+    }
+  }
 }

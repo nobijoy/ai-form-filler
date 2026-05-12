@@ -1,4 +1,5 @@
 import type { FieldDescriptor, FieldOption } from "../shared/types";
+import { isFillableField, NON_FILLABLE_INPUT_TYPES } from "../shared/fillable";
 
 const elementIds = new WeakMap<Element, string>();
 let idCounter = 0;
@@ -112,16 +113,36 @@ function surroundingTextWithin50px(el: HTMLElement): string | undefined {
 
 function isVisible(el: HTMLElement): boolean {
   if (!(el instanceof HTMLElement)) return false;
-  if (el.hidden) return false;
-  if (el.getAttribute("aria-hidden") === "true") return false;
-  const style = window.getComputedStyle(el);
-  if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0")
-    return false;
+
+  let cur: HTMLElement | null = el;
+  while (cur) {
+    if (cur.hidden) return false;
+    if (cur.getAttribute("aria-hidden") === "true") return false;
+    const style = window.getComputedStyle(cur);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+    if (parseFloat(style.opacity) === 0) return false;
+    cur = cur.parentElement;
+  }
+
   const rect = el.getBoundingClientRect();
   if (rect.width === 0 && rect.height === 0 && el.tagName !== "INPUT") {
     return false;
   }
   return true;
+}
+
+function isControlDisabled(
+  el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+): boolean {
+  if (el.hasAttribute("disabled")) return true;
+  if (el.getAttribute("aria-disabled") === "true") return true;
+  if ("readOnly" in el && (el as HTMLInputElement | HTMLTextAreaElement).readOnly) return true;
+  if (el.closest("[inert]")) return true;
+  return false;
+}
+
+function isNonFillableInputType(type: string): boolean {
+  return NON_FILLABLE_INPUT_TYPES.has(type);
 }
 
 function gatherOptions(sel: HTMLSelectElement): FieldOption[] {
@@ -161,16 +182,17 @@ export function scanFormFields(): ScanResult {
         if (!name || scannedRadioGroups.has(name)) continue;
         scannedRadioGroups.add(name);
         const radios = gatherRadios(name);
-        const choices: FieldOption[] = radios.map((r) => ({
-          value: r.value,
-          label: associatedLabelText(r) || r.value || "option",
-        }));
-        const first = radios[0];
+        const choices: FieldOption[] = radios
+          .filter((r) => isVisible(r) && !isControlDisabled(r))
+          .map((r) => ({
+            value: r.value,
+            label: associatedLabelText(r) || r.value || "option",
+          }));
+        const first = radios.find((r) => isVisible(r) && !isControlDisabled(r)) ?? radios[0];
         if (!first) continue;
         const sid = syntheticIdFor(first);
-        targets.set(sid, { type: "radio", inputs: radios });
         const checked = radios.find((r) => r.checked);
-        fields.push({
+        const descriptor: FieldDescriptor = {
           syntheticId: sid,
           tag: "input",
           inputType: "radio",
@@ -184,21 +206,17 @@ export function scanFormFields(): ScanResult {
           radioGroup: name,
           radioChoices: choices,
           currentValue: checked?.value ?? "",
-          disabled: radios.every((r) => r.disabled),
+          disabled: radios.every((r) => isControlDisabled(r)),
           visible: radios.some((r) => isVisible(r)),
           fieldLocale: resolveLang(first),
-        });
+        };
+        if (!isFillableField(descriptor)) continue;
+        targets.set(sid, { type: "radio", inputs: radios });
+        fields.push(descriptor);
         continue;
       }
 
-      if (
-        t === "hidden" ||
-        t === "submit" ||
-        t === "button" ||
-        t === "reset" ||
-        t === "image" ||
-        t === "file"
-      ) {
+      if (isNonFillableInputType(t)) {
         continue;
       }
 
@@ -210,10 +228,9 @@ export function scanFormFields(): ScanResult {
       }
 
       const sid = syntheticIdFor(input);
-      targets.set(sid, { type: "single", el: input });
       const valueForDescriptor =
         t === "checkbox" ? (input.checked ? "true" : "false") : input.value;
-      fields.push({
+      const descriptor: FieldDescriptor = {
         syntheticId: sid,
         tag: "input",
         inputType: t,
@@ -229,10 +246,13 @@ export function scanFormFields(): ScanResult {
         formPurpose: nearestFormPurpose(input),
         surroundingText: surroundingTextWithin50px(input),
         currentValue: valueForDescriptor,
-        disabled: input.disabled,
+        disabled: isControlDisabled(input),
         visible: isVisible(input),
         fieldLocale: resolveLang(input),
-      });
+      };
+      if (!isFillableField(descriptor)) continue;
+      targets.set(sid, { type: "single", el: input });
+      fields.push(descriptor);
       continue;
     }
 
@@ -245,8 +265,7 @@ export function scanFormFields(): ScanResult {
         if (fromIds) ariaLabel = fromIds;
       }
       const sid = syntheticIdFor(ta);
-      targets.set(sid, { type: "single", el: ta });
-      fields.push({
+      const descriptor: FieldDescriptor = {
         syntheticId: sid,
         tag: "textarea",
         name: ta.name || undefined,
@@ -260,10 +279,13 @@ export function scanFormFields(): ScanResult {
         formPurpose: nearestFormPurpose(ta),
         surroundingText: surroundingTextWithin50px(ta),
         currentValue: ta.value,
-        disabled: ta.disabled,
+        disabled: isControlDisabled(ta),
         visible: isVisible(ta),
         fieldLocale: resolveLang(ta),
-      });
+      };
+      if (!isFillableField(descriptor)) continue;
+      targets.set(sid, { type: "single", el: ta });
+      fields.push(descriptor);
       continue;
     }
 
@@ -276,8 +298,7 @@ export function scanFormFields(): ScanResult {
         if (fromIds) ariaLabel = fromIds;
       }
       const sid = syntheticIdFor(sel);
-      targets.set(sid, { type: "single", el: sel });
-      fields.push({
+      const descriptor: FieldDescriptor = {
         syntheticId: sid,
         tag: "select",
         name: sel.name || undefined,
@@ -290,14 +311,132 @@ export function scanFormFields(): ScanResult {
         surroundingText: surroundingTextWithin50px(sel),
         options: gatherOptions(sel),
         currentValue: sel.value,
-        disabled: sel.disabled,
+        disabled: isControlDisabled(sel),
         visible: isVisible(sel),
         fieldLocale: resolveLang(sel),
-      });
+      };
+      if (!isFillableField(descriptor)) continue;
+      targets.set(sid, { type: "single", el: sel });
+      fields.push(descriptor);
     }
   }
 
+  attachCheckboxDependentLinks(fields, targets);
+
   return { fields, targets };
+}
+
+const DEPENDENT_TEXT_HINTS =
+  /その他|補足|詳細|理由|備考|試用期間|other|additional|detail|supplement|remarks|notes|specify/i;
+const LINK_CONTAINER_SELECTORS = ["label", '[role="group"]', "fieldset", "li", "tr", "div", "section"];
+
+function elementForSid(targets: Map<string, ApplyTarget>, sid: string): HTMLElement | null {
+  const target = targets.get(sid);
+  return target?.type === "single" ? target.el : null;
+}
+
+function attachCheckboxDependentLinks(
+  fields: FieldDescriptor[],
+  targets: Map<string, ApplyTarget>,
+): void {
+  const checkboxFields = fields.filter((field) => field.inputType === "checkbox");
+  const textFields = fields.filter(
+    (field) =>
+      field.tag === "textarea" ||
+      (field.tag === "input" &&
+        field.inputType !== "checkbox" &&
+        field.inputType !== "radio" &&
+        (!field.inputType || field.inputType === "text")),
+  );
+
+  for (const textField of textFields) {
+    const textEl = elementForSid(targets, textField.syntheticId);
+    if (!textEl) continue;
+
+    const hintBlob = [
+      textField.labelText,
+      textField.placeholder,
+      textField.ariaLabel,
+      textField.surroundingText,
+      textField.formPurpose,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    let best: { sid: string; score: number } | null = null;
+    const textRect = textEl.getBoundingClientRect();
+
+    for (const checkboxField of checkboxFields) {
+      const checkboxEl = elementForSid(targets, checkboxField.syntheticId);
+      if (!(checkboxEl instanceof HTMLInputElement)) continue;
+
+      let score = 0;
+
+      for (const selector of LINK_CONTAINER_SELECTORS) {
+        const textContainer: Element | null = textEl.closest(selector);
+        const checkboxContainer: Element | null = checkboxEl.closest(selector);
+        if (textContainer && textContainer === checkboxContainer) {
+          score += 40;
+          break;
+        }
+        if (textContainer?.contains(checkboxEl) || checkboxContainer?.contains(textEl)) {
+          score += 30;
+          break;
+        }
+      }
+
+      if (checkboxEl.id) {
+        const label = checkboxEl.ownerDocument.querySelector(
+          `label[for="${CSS.escape(checkboxEl.id)}"]`,
+        );
+        if (label && (label.contains(textEl) || textEl.closest("label") === label)) {
+          score += 50;
+        }
+      }
+
+      const checkboxBlob = [checkboxField.labelText, checkboxField.ariaLabel]
+        .filter(Boolean)
+        .join(" ");
+      if (DEPENDENT_TEXT_HINTS.test(hintBlob) || DEPENDENT_TEXT_HINTS.test(checkboxBlob)) {
+        score += 20;
+      }
+
+      const distance = rectDistance(textRect, checkboxEl.getBoundingClientRect());
+      if (distance <= 50) score += Math.max(0, 50 - distance);
+
+      if (!best || score > best.score) best = { sid: checkboxField.syntheticId, score };
+    }
+
+    if (best && best.score >= 30) {
+      textField.controllingCheckboxSid = best.sid;
+      console.debug("[AI Form Filler] linked dependent text field", {
+        textSid: textField.syntheticId,
+        controllingCheckboxSid: best.sid,
+        score: best.score,
+      });
+    }
+  }
+}
+
+export function isApplyTargetFillable(target: ApplyTarget): boolean {
+  if (target.type === "radio") {
+    return target.inputs.some((input) => isVisible(input) && !isControlDisabled(input));
+  }
+
+  const el = target.el;
+  if (
+    !(el instanceof HTMLInputElement) &&
+    !(el instanceof HTMLTextAreaElement) &&
+    !(el instanceof HTMLSelectElement)
+  ) {
+    return false;
+  }
+
+  if (el instanceof HTMLInputElement && isNonFillableInputType((el.type || "text").toLowerCase())) {
+    return false;
+  }
+
+  return isVisible(el) && !isControlDisabled(el);
 }
 
 export function resolveDocumentLocale(): string {

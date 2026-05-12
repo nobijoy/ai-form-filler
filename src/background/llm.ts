@@ -1,3 +1,4 @@
+import { isFillableField } from "../shared/fillable";
 import { normalizeApiKey } from "./storage";
 import { parseLlmValues } from "../shared/llmResponseSchema";
 import { PROVIDERS } from "../shared/providers";
@@ -177,8 +178,7 @@ function groupCheckboxFields(
 }
 
 function buildUserPayload(snapshot: FillSnapshot, personaNote: string): string {
-  // Exclude hidden inputs — they hold server tokens and must never reach the LLM
-  const eligibleFields = snapshot.fields.filter((f) => f.inputType !== "hidden");
+  const eligibleFields = snapshot.fields.filter(isFillableField);
 
   const rawCompact = eligibleFields.map((f) => {
     const base = { sid: f.syntheticId, req: !!f.required || undefined };
