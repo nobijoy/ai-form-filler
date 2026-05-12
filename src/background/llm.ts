@@ -1,8 +1,14 @@
 import { isFillableField } from "../shared/fillable";
 import { normalizeApiKey } from "./storage";
-import { parseLlmValues } from "../shared/llmResponseSchema";
+import { parseLlmValues, parseNavigationDecision } from "../shared/llmResponseSchema";
 import { PROVIDERS } from "../shared/providers";
-import type { ExtensionSettings, FillSnapshot, LlmProviderId, OpenRouterModelOption } from "../shared/types";
+import type {
+  ExtensionSettings,
+  FillSnapshot,
+  LlmProviderId,
+  NavigationSnapshot,
+  OpenRouterModelOption,
+} from "../shared/types";
 
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 const APP_URL = "https://nobijoy.vercel.app/";
@@ -669,5 +675,98 @@ export async function callLlmForFill(
     return { ok: false, error: allErrs.join(" | ") };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+function buildNavigationPayload(snapshot: NavigationSnapshot, allowFinalSubmit: boolean): string {
+  return JSON.stringify({
+    locale: snapshot.fillLocale || snapshot.documentLocale,
+    page: snapshot.pageTitle?.slice(0, 80),
+    url: snapshot.pageUrl,
+    visibleFields: snapshot.visibleFillableFieldCount,
+    unresolvedRequired: snapshot.unresolvedRequiredCount,
+    multiStepHints: snapshot.multiStepHints,
+    allowFinalSubmit,
+    controls: snapshot.controls.map((control) => ({
+      sid: control.sid,
+      tag: control.tag,
+      type: control.inputType,
+      label: control.labelText,
+      aria: control.ariaLabel,
+      role: control.role,
+      inForm: control.inActiveForm,
+      isSubmit: control.isSubmit,
+      pos: control.position,
+      markers: control.markerScore,
+    })),
+  });
+}
+
+function navigationSystemPrompt(): string {
+  return `You classify form navigation controls for QA automation.
+Return only minified JSON:
+{"isMultiStep":boolean,"shouldAdvanceAfterFill":boolean,"nextControlSid":"id-or-empty","isFinalSubmit":boolean,"confidence":number}
+Advance only when required fields on the current visible step are done.
+Pick the single best forward/next/continue control by label and structure in any language.
+Do not pick back/cancel/reset controls.
+Treat payment/order/final submit only when it is clearly the final submit page or allowFinalSubmit is true.`;
+}
+
+export async function callLlmForNavigation(
+  snapshot: NavigationSnapshot,
+  allowFinalSubmit: boolean,
+  settings: ExtensionSettings,
+  apiKeys: Partial<Record<LlmProviderId, string>>,
+): Promise<
+  | { ok: true; decision: ReturnType<typeof parseNavigationDecision> }
+  | { ok: false; error: string }
+> {
+  const key = normalizeApiKey(apiKeys[settings.provider] ?? "");
+  if (!key) {
+    return { ok: false, error: "No API key configured." };
+  }
+
+  const base = settings.baseUrl.replace(/\/$/, "");
+  const url = `${base}/chat/completions`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${key}`,
+  };
+  if (settings.provider === "openrouter") {
+    headers["HTTP-Referer"] = APP_URL;
+    headers["X-Title"] = APP_TITLE;
+  }
+
+  const body: Record<string, unknown> = {
+    model: settings.model,
+    temperature: 0,
+    top_p: 0.1,
+    max_tokens: 220,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: navigationSystemPrompt() },
+      { role: "user", content: buildNavigationPayload(snapshot, allowFinalSubmit) },
+    ],
+  };
+  if (settings.provider === "openrouter") body.include_reasoning = false;
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      return { ok: false, error: text.slice(0, 400) || `HTTP ${res.status}` };
+    }
+    const data = JSON.parse(text) as {
+      choices?: { message?: { content?: string | null } }[];
+    };
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return { ok: false, error: "Empty navigation model response." };
+    return { ok: true, decision: parseNavigationDecision(content) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }

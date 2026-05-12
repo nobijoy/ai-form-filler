@@ -330,14 +330,18 @@ async function onFill(): Promise<void> {
       return;
     }
     const r = await chrome.tabs.sendMessage(tab.id, { type: "RUN_FILL" });
-    const res = r as { ok?: boolean; error?: string } | undefined;
+    const res = r as { ok?: boolean; error?: string; warnings?: string[] } | undefined;
     if (res && res.ok === false) {
-      const msg = res.error || t("errGeneric");
+      const msg = res.error || res.warnings?.join("\n") || t("errGeneric");
       setStatus(msg, true);
       showErrorModal(msg);
       return;
     }
-    setStatus(t("statusSent"));
+    if (res?.warnings?.length) {
+      setStatus(res.warnings[res.warnings.length - 1] ?? t("statusSent"));
+    } else {
+      setStatus(t("statusSent"));
+    }
   } catch {
     setStatus(
       "Could not reach this page. Try a normal https page (not chrome:// or the Web Store).",

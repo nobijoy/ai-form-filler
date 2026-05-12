@@ -44,3 +44,37 @@ export function parseLlmValues(raw: string): Record<string, string> {
   }
   return result;
 }
+
+export interface ParsedNavigationDecision {
+  isMultiStep: boolean;
+  shouldAdvanceAfterFill: boolean;
+  nextControlSid?: string;
+  isFinalSubmit: boolean;
+  confidence: number;
+}
+
+export function parseNavigationDecision(raw: string): ParsedNavigationDecision {
+  const parsed: unknown = JSON.parse(extractJsonObject(raw));
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("Navigation response is not a JSON object");
+  }
+
+  const record = parsed as Record<string, unknown>;
+  const confidence =
+    typeof record.confidence === "number"
+      ? record.confidence
+      : typeof record.confidence === "string"
+        ? Number(record.confidence)
+        : 0;
+
+  return {
+    isMultiStep: record.isMultiStep === true,
+    shouldAdvanceAfterFill: record.shouldAdvanceAfterFill === true,
+    nextControlSid:
+      typeof record.nextControlSid === "string" && record.nextControlSid.trim()
+        ? record.nextControlSid.trim()
+        : undefined,
+    isFinalSubmit: record.isFinalSubmit === true,
+    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+  };
+}

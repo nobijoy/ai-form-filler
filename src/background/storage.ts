@@ -26,12 +26,30 @@ export function normalizeApiKey(key: string): string {
 export async function getSettings(): Promise<ExtensionSettings> {
   const raw = await chrome.storage.local.get(SETTINGS_KEY);
   const stored = raw[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined;
-  return {
+  const merged = {
     ...DEFAULT_SETTINGS,
     ...stored,
-    fillLanguage: "auto",
+    fillLanguage: "auto" as const,
     fillLocaleOverride: "",
   };
+
+  if (merged.fillMode === "ai_only") {
+    merged.autoNextEnabled = true;
+    merged.autoNextMaxSteps = Math.max(merged.autoNextMaxSteps, 10);
+  } else if (merged.autoNextMaxSteps > 1) {
+    merged.autoNextEnabled = true;
+    merged.autoNextMaxSteps = Math.max(
+      merged.autoNextMaxSteps,
+      DEFAULT_SETTINGS.autoNextMaxSteps,
+    );
+  } else if (merged.autoNextEnabled) {
+    merged.autoNextMaxSteps = Math.max(
+      merged.autoNextMaxSteps,
+      DEFAULT_SETTINGS.autoNextMaxSteps,
+    );
+  }
+
+  return merged;
 }
 
 export async function saveSettings(partial: Partial<ExtensionSettings>): Promise<void> {

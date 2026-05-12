@@ -41,10 +41,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         const { settings } = await sendMessage<GetSettingsResponse>({
           type: "GET_SETTINGS",
         });
-        await runFillOrchestration(settings, () => {
-          /* optional dev status */
+        const result = await runFillOrchestration(settings, (message) => {
+          console.debug("[AI Form Filler]", message);
         });
-        sendResponse({ ok: true });
+        sendResponse({
+          ok: result.ok,
+          warnings: result.warnings,
+          error: result.ok ? undefined : result.warnings.join("\n"),
+        });
       } catch (e) {
         sendResponse({
           ok: false,

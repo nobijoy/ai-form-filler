@@ -29,8 +29,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   personaJson: "",
   maxRounds: 5,
   settleMs: 100,
-  autoNextEnabled: false,
-  autoNextMaxSteps: 3,
+  autoNextEnabled: true,
+  autoNextMaxSteps: 10,
   fillEmptyOnly: true,
   rememberKeyAcrossRestarts: true,
 };
@@ -114,6 +114,51 @@ export interface LlmFillResponse {
   values?: Record<string, string>;
   error?: string;
   skipped?: boolean;
+}
+
+export interface FillRunResult {
+  ok: boolean;
+  warnings: string[];
+}
+
+export interface NavigationControlDescriptor {
+  sid: string;
+  tag: string;
+  inputType?: string;
+  labelText: string;
+  ariaLabel?: string;
+  name?: string;
+  role?: string;
+  inActiveForm: boolean;
+  isSubmit: boolean;
+  markerScore: number;
+  position: "start" | "middle" | "end";
+}
+
+export interface NavigationSnapshot {
+  pageTitle: string;
+  pageUrl: string;
+  documentLocale: string;
+  fillLocale: string;
+  visibleFillableFieldCount: number;
+  unresolvedRequiredCount: number;
+  multiStepHints: string[];
+  controls: NavigationControlDescriptor[];
+}
+
+export interface NavigationDecision {
+  isMultiStep: boolean;
+  shouldAdvanceAfterFill: boolean;
+  nextControlSid?: string;
+  isFinalSubmit: boolean;
+  confidence: number;
+  source: "heuristic" | "ai";
+}
+
+export interface LlmNavigationResponse {
+  ok: boolean;
+  decision?: NavigationDecision;
+  error?: string;
 }
 
 export interface OpenRouterModelOption {

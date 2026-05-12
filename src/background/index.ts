@@ -1,4 +1,4 @@
-import { callLlmForFill, getProviderModels, testProviderKey } from "./llm";
+import { callLlmForFill, callLlmForNavigation, getProviderModels, testProviderKey } from "./llm";
 import { PROVIDERS } from "../shared/providers";
 import {
   clearApiKey,
@@ -8,7 +8,15 @@ import {
   saveApiKey,
   saveSettings,
 } from "./storage";
-import type { ExtensionSettings, FillMode, FillSnapshot, LlmFillResponse, LlmProviderId } from "../shared/types";
+import type {
+  ExtensionSettings,
+  FillMode,
+  FillSnapshot,
+  LlmFillResponse,
+  LlmNavigationResponse,
+  LlmProviderId,
+  NavigationSnapshot,
+} from "../shared/types";
 
 const MENU_ID = "aff_fill_now";
 let contextMenuRefresh: Promise<void> = Promise.resolve();
@@ -110,6 +118,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     void handleLlmFill(message.snapshot as FillSnapshot).then(sendResponse);
     return true;
   }
+  if (message?.type === "LLM_NAVIGATION") {
+    void handleLlmNavigation(
+      message.snapshot as NavigationSnapshot,
+      !!(message as { allowFinalSubmit?: boolean }).allowFinalSubmit,
+    ).then(sendResponse);
+    return true;
+  }
   if (message?.type === "GET_PROVIDER_MODELS") {
     void (async () => {
       const { provider } = message as { provider: LlmProviderId };
@@ -197,4 +212,31 @@ async function handleLlmFill(snapshot: FillSnapshot): Promise<LlmFillResponse> {
   const result = await callLlmForFill(snapshot, settings, apiKeys);
   if (!result.ok) return { ok: false, error: result.error };
   return { ok: true, values: result.values };
+}
+
+async function handleLlmNavigation(
+  snapshot: NavigationSnapshot,
+  allowFinalSubmit: boolean,
+): Promise<LlmNavigationResponse> {
+  const settings = await getSettings();
+  if (settings.fillMode === "heuristics_only") {
+    return { ok: false, error: "Navigation AI disabled in heuristics-only mode." };
+  }
+  const apiKeys: Partial<Record<LlmProviderId, string>> = {};
+  for (const provider of Object.keys(PROVIDERS) as LlmProviderId[]) {
+    const key = await getApiKey(provider);
+    if (key) apiKeys[provider] = key;
+  }
+  if (!apiKeys[settings.provider]) {
+    return { ok: false, error: "No API key configured." };
+  }
+  const result = await callLlmForNavigation(snapshot, allowFinalSubmit, settings, apiKeys);
+  if (!result.ok) return { ok: false, error: result.error };
+  return {
+    ok: true,
+    decision: {
+      ...result.decision,
+      source: "ai",
+    },
+  };
 }

@@ -1,4 +1,6 @@
 import { applyValuesToTargets, reconcileAppliedValues } from "./apply";
+import { getUnresolvedCandidates } from "./candidates";
+import { advanceFormStep, detectMultiStepHints, inferWizardStepCount } from "./navigation";
 import type { ScanResult } from "./scan";
 import { resolveDocumentLocale, resolveFillLocale, scanFormFields } from "./scan";
 import { parsePersona, tryHeuristicValue } from "../shared/heuristics";
@@ -9,6 +11,7 @@ import type {
   FieldDescriptor,
   FillSnapshot,
   FormMemory,
+  FillRunResult,
   LlmFillResponse,
 } from "../shared/types";
 
@@ -24,10 +27,6 @@ const IDENTITY_FIELD_PATTERN =
 const CONTACT_FIELD_PATTERN =
   /address|adresse|postal|zip|ville|city|pays|country|street|rue|code postal|complément/i;
 const PAYMENT_FIELD_PATTERN = /card|cvv|cvc|payment|paiement|billing|facturation|iban/i;
-const NEXT_BUTTON_PATTERN =
-  /(next|continue|proceed|suivant|continuer|étape suivante|etape suivante|passer à l'étape|passer a l'etape|weiter|volgende|seguinte)/i;
-const FINAL_SUBMIT_PATTERN =
-  /\b(place.?order|pay now|commander|payer|order now|complete order|finish order|finaliser|confirmer la commande|valider la commande)\b/i;
 
 const SECTION_ORDER = [
   "basic_info",
@@ -247,40 +246,6 @@ function maxForCbGroup(groupTitle: string, itemCount: number, allLabels: string[
   return itemCount;
 }
 
-function isFieldEmpty(f: FieldDescriptor): boolean {
-  if (f.inputType === "checkbox") return f.currentValue !== "true";
-  if (f.inputType === "radio") return !f.currentValue?.trim();
-  return !String(f.currentValue ?? "").trim();
-}
-
-function isFieldAppliedOnDom(field: FieldDescriptor, appliedValue: string): boolean {
-  if (field.inputType === "checkbox") {
-    return appliedValue === "true" && field.currentValue === "true";
-  }
-  if (field.inputType === "radio") {
-    return field.currentValue === appliedValue;
-  }
-  return String(field.currentValue ?? "").trim() === String(appliedValue).trim();
-}
-
-function getUnresolvedCandidates(
-  fields: FieldDescriptor[],
-  settings: ExtensionSettings,
-  appliedValues: Record<string, string>,
-): FieldDescriptor[] {
-  return fields.filter((field) => {
-    if (!isFillableField(field)) return false;
-
-    const appliedValue = appliedValues[field.syntheticId];
-    if (appliedValue !== undefined) {
-      return !isFieldAppliedOnDom(field, appliedValue);
-    }
-
-    if (!settings.fillEmptyOnly) return true;
-    return isFieldEmpty(field);
-  });
-}
-
 function filterCandidates(
   fields: FieldDescriptor[],
   settings: ExtensionSettings,
@@ -295,18 +260,6 @@ function settle(ms: number): Promise<void> {
       setTimeout(resolve, ms);
     });
   });
-}
-
-function visibleFillableFields(fields: FieldDescriptor[]): FieldDescriptor[] {
-  return fields.filter((field) => isFillableField(field));
-}
-
-function signatureForProgress(fields: FieldDescriptor[]): string {
-  const ids = fields
-    .map((f) => `${f.syntheticId}:${f.labelText ?? ""}:${f.formPurpose ?? ""}`)
-    .sort()
-    .join(",");
-  return `${location.href}|${document.title}|${ids}`;
 }
 
 function requiredUnfilledCount(
@@ -336,122 +289,6 @@ function detectAppliedFieldResets(
   }
 
   return resetSids;
-}
-
-function textForNext(el: Element): string {
-  return (
-    el.getAttribute("aria-label") ||
-    el.getAttribute("title") ||
-    el.textContent ||
-    (el instanceof HTMLInputElement ? el.value : "") ||
-    ""
-  )
-    .toLowerCase()
-    .trim();
-}
-
-function attrBag(el: Element): string {
-  const bits = [
-    el.getAttribute("id") || "",
-    el.getAttribute("name") || "",
-    el.getAttribute("class") || "",
-    el.getAttribute("data-testid") || "",
-    el.getAttribute("data-test") || "",
-    el.getAttribute("data-action") || "",
-    el.getAttribute("aria-label") || "",
-    el.getAttribute("title") || "",
-  ];
-  return bits.join(" ").toLowerCase();
-}
-
-function isElementInteractable(el: Element): boolean {
-  if (!(el instanceof HTMLElement)) return false;
-  if (el.hidden) return false;
-  if (el.getAttribute("aria-hidden") === "true") return false;
-  if ((el as HTMLButtonElement).disabled) return false;
-  const style = window.getComputedStyle(el);
-  if (style.display === "none" || style.visibility === "hidden") return false;
-  const rect = el.getBoundingClientRect();
-  return rect.width > 0 && rect.height > 0;
-}
-
-function detectActiveForm(): HTMLFormElement | null {
-  const forms = Array.from(document.querySelectorAll<HTMLFormElement>("form"));
-  if (forms.length === 0) return null;
-  let best: { form: HTMLFormElement; score: number } | null = null;
-  for (const form of forms) {
-    const controls = Array.from(
-      form.querySelectorAll<HTMLElement>("input, select, textarea, button"),
-    ).filter(isElementInteractable);
-    const score = controls.length;
-    if (!best || score > best.score) best = { form, score };
-  }
-  return best?.form ?? null;
-}
-
-function isFinalSubmitControl(el: Element): boolean {
-  const combined = `${textForNext(el)} ${attrBag(el)}`;
-  if (NEXT_BUTTON_PATTERN.test(combined)) return false;
-  return FINAL_SUBMIT_PATTERN.test(combined);
-}
-
-function maybeClickNextControl(options: { allowFinalSubmit: boolean }): boolean {
-  const candidates = Array.from(
-    document.querySelectorAll<HTMLElement>(
-      "button, input[type='button'], input[type='submit'], a[role='button'], [role='button'], a[rel='next']",
-    ),
-  ).filter(isElementInteractable);
-
-  if (candidates.length === 0) return false;
-
-  const activeForm = detectActiveForm();
-  const viewportW = window.innerWidth || document.documentElement.clientWidth || 1;
-  const viewportH = window.innerHeight || document.documentElement.clientHeight || 1;
-
-  const scored = candidates
-    .map((el) => {
-      let score = 0;
-      const attrs = attrBag(el);
-      const txt = textForNext(el);
-      const rect = el.getBoundingClientRect();
-      const combined = `${txt} ${attrs}`;
-
-      if (!options.allowFinalSubmit && isFinalSubmitControl(el)) return { el, score: -100 };
-
-      if (activeForm && activeForm.contains(el)) score += 5;
-      if (el.matches("[rel='next'], [data-next], [data-step-next], [aria-controls]")) score += 4;
-
-      score += (rect.left + rect.width / 2) / viewportW;
-      score += (rect.top + rect.height / 2) / viewportH;
-
-      if (/\b(back|prev|previous|cancel|reset|retour|précédent|precedent)\b/i.test(combined)) {
-        score -= 8;
-      }
-
-      if (NEXT_BUTTON_PATTERN.test(combined)) score += 8;
-      if (/^(next|continue|suivant|continuer|weiter|volgende|seguinte)\b/i.test(txt)) score += 5;
-
-      if (FINAL_SUBMIT_PATTERN.test(combined)) score -= options.allowFinalSubmit ? 1 : 10;
-
-      return { el, score };
-    })
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  const best = scored[0];
-  if (!best || best.score < 1) return false;
-
-  try {
-    best.el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    if (best.el instanceof HTMLElement) best.el.click();
-    console.debug("[AI Form Filler] clicked next-step control", {
-      text: textForNext(best.el).slice(0, 80),
-      score: best.score,
-    });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function appendRemainingChunk(
@@ -486,74 +323,78 @@ function appendRemainingChunk(
   ];
 }
 
-async function waitForFormStepChange(
-  beforeFieldIds: Set<string>,
-  beforeSig: string,
+function reopenChunksForCandidates(
+  chunks: ChunkState[],
+  candidates: FieldDescriptor[],
+): ChunkState[] | null {
+  const candidateSids = new Set(candidates.map((field) => field.syntheticId));
+  let touched = false;
+
+  const next = chunks.map((chunk) => {
+    const overlap = chunk.fieldSids.filter((sid) => candidateSids.has(sid));
+    if (overlap.length === 0) return chunk;
+    if (chunk.status !== "completed" && chunk.status !== "failed") return chunk;
+
+    touched = true;
+    return {
+      ...chunk,
+      status: "partial" as const,
+      retrySids: overlap,
+    };
+  });
+
+  return touched ? next : null;
+}
+
+function shouldAutoAdvance(settings: ExtensionSettings): boolean {
+  if (settings.fillMode === "ai_only") return true;
+  if (settings.autoNextEnabled) return true;
+  return detectMultiStepHints().length > 0 || inferWizardStepCount() > 1;
+}
+
+function resolveMaxFormSteps(settings: ExtensionSettings): number {
+  const detectedSteps = inferWizardStepCount();
+  if (!shouldAutoAdvance(settings)) {
+    return 1;
+  }
+
+  const configured =
+    settings.fillMode === "ai_only"
+      ? Math.max(settings.autoNextMaxSteps, AI_ONLY_MAX_FORM_STEPS)
+      : Math.max(1, settings.autoNextMaxSteps);
+
+  return Math.max(configured, detectedSteps > 0 ? detectedSteps : 0, 4);
+}
+
+function pruneAppliedValuesForScan(
+  appliedValues: Record<string, string>,
+  scan: ScanResult,
+): void {
+  const activeIds = new Set(scan.fields.map((field) => field.syntheticId));
+  for (const sid of Object.keys(appliedValues)) {
+    if (!activeIds.has(sid)) delete appliedValues[sid];
+  }
+}
+
+async function waitForStepFields(
+  settings: ExtensionSettings,
+  appliedValues: Record<string, string>,
   settleMs: number,
-  timeoutMs = 8000,
-): Promise<boolean> {
-  const startUrl = location.href;
-  const waitMs = Math.max(250, settleMs);
+  timeoutMs = 12000,
+): Promise<ScanResult> {
+  const waitMs = Math.max(400, settleMs);
   const startedAt = Date.now();
+  let latest = scanFormFields();
 
   while (Date.now() - startedAt < timeoutMs) {
     await settle(waitMs);
-    if (location.href !== startUrl) return true;
-
-    const scan = scanFormFields();
-    const visibleFields = visibleFillableFields(scan.fields);
-    const currentIds = new Set(visibleFields.map((field) => field.syntheticId));
-    for (const sid of currentIds) {
-      if (!beforeFieldIds.has(sid)) return true;
+    latest = scanFormFields();
+    if (getUnresolvedCandidates(latest.fields, settings, appliedValues).length > 0) {
+      return latest;
     }
-    if (currentIds.size !== beforeFieldIds.size) return true;
-    if (signatureForProgress(visibleFields) !== beforeSig) return true;
   }
 
-  return false;
-}
-
-async function advanceFormStep(
-  settings: ExtensionSettings,
-  appliedValues: Record<string, string>,
-  allowFinalSubmit: boolean,
-  onStatus?: (s: string) => void,
-): Promise<boolean> {
-  const scan = scanFormFields();
-  await reconcileAppliedValues(scan.targets, appliedValues, {
-    fields: scan.fields,
-    settleMs: settings.settleMs,
-  });
-
-  const unresolved = getUnresolvedCandidates(scan.fields, settings, appliedValues);
-  const requiredLeft = unresolved.filter((field) => field.required).length;
-  if (requiredLeft > 0) {
-    console.debug("[AI Form Filler] advance blocked by required fields", { requiredLeft });
-    return false;
-  }
-
-  const visibleFields = visibleFillableFields(scan.fields);
-  const beforeFieldIds = new Set(visibleFields.map((field) => field.syntheticId));
-  const beforeSig = signatureForProgress(visibleFields);
-  if (!maybeClickNextControl({ allowFinalSubmit })) {
-    console.debug("[AI Form Filler] no next-step control found");
-    return false;
-  }
-
-  onStatus?.("Advancing to the next form step…");
-  await settle(Math.max(settings.settleMs, 400));
-  const changed = await waitForFormStepChange(beforeFieldIds, beforeSig, settings.settleMs);
-  if (!changed) {
-    onStatus?.("Next-step click did not change the visible form.");
-    return false;
-  }
-
-  const afterScan = scanFormFields();
-  await reconcileAppliedValues(afterScan.targets, appliedValues, {
-    fields: afterScan.fields,
-    settleMs: settings.settleMs,
-  });
-  return true;
+  return latest;
 }
 
 // ---------------------------------------------------------------------------
@@ -849,12 +690,27 @@ function sendMessage<T>(msg: unknown): Promise<T> {
 export async function runFillOrchestration(
   settings: ExtensionSettings,
   onStatus?: (s: string) => void,
-): Promise<void> {
+): Promise<FillRunResult> {
   const safeMaxRounds = Math.min(Math.max(1, settings.maxRounds), MAX_ROUNDS);
   const appliedValues: Record<string, string> = {};
+  const warnings: string[] = [];
+  const reportStatus = (message: string): void => {
+    warnings.push(message);
+    onStatus?.(message);
+  };
 
-  await runFillStep(settings, safeMaxRounds, appliedValues, onStatus);
-  onStatus?.("Fill complete.");
+  await runFillStep(settings, safeMaxRounds, appliedValues, reportStatus);
+
+  const incomplete = warnings.some((message) =>
+    /unresolved|stopped|round limit|no fillable fields found|did not change|could not be queued/i.test(
+      message,
+    ),
+  );
+  if (!incomplete) {
+    reportStatus("Fill complete.");
+  }
+
+  return { ok: !incomplete, warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -870,20 +726,19 @@ async function runFillStep(
   const docLocale = resolveDocumentLocale();
   const fillLocale = resolveFillLocale("auto", "", docLocale);
   const allowFinalSubmit = settings.autoNextEnabled;
-  const maxFormSteps =
-    settings.fillMode === "ai_only"
-      ? Math.max(settings.autoNextMaxSteps, AI_ONLY_MAX_FORM_STEPS)
-      : settings.autoNextEnabled
-        ? Math.max(1, settings.autoNextMaxSteps)
-        : 1;
+  const maxFormSteps = resolveMaxFormSteps(settings);
+  const autoAdvance = shouldAutoAdvance(settings);
 
   const formMemory: FormMemory = {
     locale: fillLocale || docLocale || undefined,
     pageTitle: document.title || undefined,
   };
 
-  for (let formStep = 0; formStep < maxFormSteps; formStep++) {
-    if (settings.fillMode !== "ai_only" && formStep === 0) {
+  let screenIndex = 0;
+
+  while (screenIndex < maxFormSteps) {
+    screenIndex++;
+    if (settings.fillMode !== "ai_only" && screenIndex === 1) {
       const scan0: ScanResult = scanFormFields();
       const candidates0 = filterCandidates(scan0.fields, settings, appliedValues);
       const persona = parsePersona(settings.personaJson);
@@ -903,26 +758,48 @@ async function runFillStep(
 
     if (settings.fillMode === "heuristics_only") return;
 
-    const scanInit: ScanResult = scanFormFields();
-    const initCandidates = getUnresolvedCandidates(scanInit.fields, settings, appliedValues);
+    let scanInit: ScanResult = scanFormFields();
+    pruneAppliedValuesForScan(appliedValues, scanInit);
+    let initCandidates = getUnresolvedCandidates(scanInit.fields, settings, appliedValues);
 
     if (initCandidates.length === 0) {
+      scanInit = await waitForStepFields(settings, appliedValues, settings.settleMs);
+      pruneAppliedValuesForScan(appliedValues, scanInit);
+      initCandidates = getUnresolvedCandidates(scanInit.fields, settings, appliedValues);
+    }
+
+    if (initCandidates.length === 0) {
+      const visibleFillable = scanInit.fields.filter((field) => isFillableField(field));
       const requiredLeft = requiredUnfilledCount(scanInit.fields, settings, appliedValues);
       if (requiredLeft > 0) {
-        onStatus?.(`Form step ${formStep + 1}: ${requiredLeft} required field(s) still unresolved.`);
+        onStatus?.(`Form step ${screenIndex}: ${requiredLeft} required field(s) still unresolved.`);
+        return;
+      }
+      if (visibleFillable.length > 0) {
+        onStatus?.(
+          `Form step ${screenIndex}: ${visibleFillable.length} visible field(s) could not be queued for AI fill.`,
+        );
+        return;
+      }
+      if (!autoAdvance || screenIndex >= maxFormSteps) {
+        onStatus?.(`Form step ${screenIndex}: no fillable fields found.`);
         return;
       }
 
-      if (formStep >= maxFormSteps - 1) {
-        onStatus?.(`Form step ${formStep + 1}: no fillable fields found.`);
-        return;
-      }
-
-      const advanced = await advanceFormStep(settings, appliedValues, allowFinalSubmit, onStatus);
+      const advanced = await advanceFormStep(
+        settings,
+        appliedValues,
+        allowFinalSubmit,
+        fillLocale,
+        docLocale,
+        onStatus,
+      );
       if (!advanced) {
         onStatus?.("No next-step button found. Fill stopped.");
         return;
       }
+      scanInit = await waitForStepFields(settings, appliedValues, settings.settleMs);
+      pruneAppliedValuesForScan(appliedValues, scanInit);
       continue;
     }
 
@@ -934,7 +811,7 @@ async function runFillStep(
     const aiErrorMessages: string[] = [];
 
     console.debug("[AI Form Filler] starting form step", {
-      formStep,
+      formStep: screenIndex,
       safeMaxRounds,
       chunks: chunks.map((chunk) => ({ id: chunk.id, fieldCount: chunk.fieldSids.length })),
     });
@@ -949,7 +826,7 @@ async function runFillStep(
       if (resetSids.length > 0) {
         console.debug("[AI Form Filler] applied fields reset before reconcile", {
           round,
-          formStep,
+          formStep: screenIndex,
           resetSids,
           appliedValues,
         });
@@ -961,8 +838,14 @@ async function runFillStep(
       });
 
       if (candidates.length === 0) {
-        stepComplete = true;
-        break;
+        const waitedScan = await waitForStepFields(settings, appliedValues, settings.settleMs);
+        pruneAppliedValuesForScan(appliedValues, waitedScan);
+        const retried = getUnresolvedCandidates(waitedScan.fields, settings, appliedValues);
+        if (retried.length === 0) {
+          stepComplete = true;
+          break;
+        }
+        continue;
       }
 
       const activeChunk = findNextChunk(chunks);
@@ -970,7 +853,11 @@ async function runFillStep(
         if (candidates.length > 0) {
           const nextChunks = appendRemainingChunk(chunks, candidates);
           if (nextChunks === chunks) {
-            stepComplete = true;
+            const reopened = reopenChunksForCandidates(chunks, candidates);
+            if (reopened) {
+              chunks = reopened;
+              continue;
+            }
             break;
           }
           chunks = nextChunks;
@@ -1006,12 +893,12 @@ async function runFillStep(
           : activeChunk.sectionName;
 
       onStatus?.(
-        `Form step ${formStep + 1} — round ${round + 1}/${safeMaxRounds} [${activeChunk.id}${isRetry ? "/retry" : ""}] (${chunkFields.length} fields)…`,
+        `Form step ${screenIndex} — round ${round + 1}/${safeMaxRounds} [${activeChunk.id}${isRetry ? "/retry" : ""}] (${chunkFields.length} fields)…`,
       );
 
       logChunk(activeChunk, {
         round,
-        formStep,
+        formStep: screenIndex,
         isRetry,
         sectionName,
         targetSids,
@@ -1159,27 +1046,47 @@ async function runFillStep(
     const requiredLeft = unresolved.filter((field) => field.required).length;
 
     if (requiredLeft > 0) {
-      onStatus?.(`Form step ${formStep + 1}: ${requiredLeft} required field(s) still unresolved.`);
+      onStatus?.(`Form step ${screenIndex}: ${requiredLeft} required field(s) still unresolved.`);
       return;
     }
 
     if (!stepComplete) {
-      const advancedAfterLimit = await advanceFormStep(
-        settings,
-        appliedValues,
-        allowFinalSubmit,
-        onStatus,
-      );
-      if (advancedAfterLimit) continue;
-      onStatus?.(`Form step ${formStep + 1}: reached round limit (${safeMaxRounds}).`);
+      if (requiredLeft === 0 && autoAdvance && screenIndex < maxFormSteps) {
+        const advancedAfterLimit = await advanceFormStep(
+          settings,
+          appliedValues,
+          allowFinalSubmit,
+          fillLocale,
+          docLocale,
+          onStatus,
+        );
+        if (advancedAfterLimit) {
+          await waitForStepFields(settings, appliedValues, settings.settleMs);
+          pruneAppliedValuesForScan(appliedValues, scanFormFields());
+          continue;
+        }
+      }
+      onStatus?.(`Form step ${screenIndex}: reached round limit (${safeMaxRounds}).`);
       return;
     }
 
-    if (formStep >= maxFormSteps - 1) return;
+    if (!autoAdvance || screenIndex >= maxFormSteps) {
+      return;
+    }
 
-    const advanced = await advanceFormStep(settings, appliedValues, allowFinalSubmit, onStatus);
+    const advanced = await advanceFormStep(
+      settings,
+      appliedValues,
+      allowFinalSubmit,
+      fillLocale,
+      docLocale,
+      onStatus,
+    );
     if (!advanced) {
       onStatus?.("No next-step button found. Fill stopped.");
+      return;
     }
+    await waitForStepFields(settings, appliedValues, settings.settleMs);
+    pruneAppliedValuesForScan(appliedValues, scanFormFields());
   }
 }

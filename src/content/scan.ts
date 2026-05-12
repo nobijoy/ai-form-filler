@@ -57,6 +57,20 @@ function associatedLabelText(input: HTMLInputElement | HTMLTextAreaElement | HTM
   return "";
 }
 
+function isFieldRequired(
+  el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+): boolean {
+  if (el.required) return true;
+  if (el.getAttribute("aria-required") === "true") return true;
+  if (el.getAttribute("data-required") === "true") return true;
+  if (el.classList.contains("required") || el.classList.contains("is-required")) return true;
+  const label = associatedLabelText(el);
+  if (label && /(?:\*|obligatoire|requis|required|pflichtfeld|verplicht)/i.test(label)) {
+    return true;
+  }
+  return false;
+}
+
 function rectDistance(a: DOMRect, b: DOMRect): number {
   const dx = Math.max(0, Math.max(a.left - b.right, b.left - a.right));
   const dy = Math.max(0, Math.max(a.top - b.bottom, b.top - a.bottom));
@@ -198,7 +212,7 @@ export function scanFormFields(): ScanResult {
           inputType: "radio",
           name: name,
           id: first.id || undefined,
-          required: first.required,
+          required: isFieldRequired(first),
           ariaLabel: first.getAttribute("aria-label") || undefined,
           labelText: associatedLabelText(first) || first.getAttribute("aria-label") || undefined,
           formPurpose: nearestFormPurpose(first),
@@ -237,7 +251,7 @@ export function scanFormFields(): ScanResult {
         name: input.name || undefined,
         id: input.id || undefined,
         placeholder: input.placeholder || undefined,
-        required: input.required,
+        required: isFieldRequired(input),
         pattern: input.pattern || undefined,
         maxLength: input.maxLength > 0 ? input.maxLength : undefined,
         autoComplete: input.autocomplete || undefined,
@@ -271,7 +285,7 @@ export function scanFormFields(): ScanResult {
         name: ta.name || undefined,
         id: ta.id || undefined,
         placeholder: ta.placeholder || undefined,
-        required: ta.required,
+        required: isFieldRequired(ta),
         maxLength: ta.maxLength > 0 ? ta.maxLength : undefined,
         autoComplete: ta.autocomplete || undefined,
         ariaLabel,
@@ -303,7 +317,7 @@ export function scanFormFields(): ScanResult {
         tag: "select",
         name: sel.name || undefined,
         id: sel.id || undefined,
-        required: sel.required,
+        required: isFieldRequired(sel),
         autoComplete: sel.autocomplete || undefined,
         ariaLabel,
         labelText: associatedLabelText(sel) || ariaLabel || undefined,
