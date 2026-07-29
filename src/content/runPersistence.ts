@@ -6,7 +6,31 @@ import type { FillRunResult, RunContext } from "../shared/types";
  */
 
 const STORAGE_KEY = "fillCheckpoint";
+const VARIATION_SEQUENCE_KEY = "variationSequence";
 const MAX_AGE_MS = 5 * 60 * 1000;
+
+/**
+ * Allocates a monotonically increasing run number.
+ *
+ * Random selection can legitimately repeat; a test-data tool should avoid that
+ * across adjacent runs. The sequence lets profile pools rotate deterministically
+ * while a random suffix still varies unconstrained model output.
+ */
+export async function reserveVariationSeed(): Promise<string> {
+  let sequence = 1;
+  try {
+    const stored = await chrome.storage.local.get(VARIATION_SEQUENCE_KEY);
+    const previous = Number(stored[VARIATION_SEQUENCE_KEY]);
+    sequence = Number.isSafeInteger(previous) && previous >= 0 ? previous + 1 : 1;
+    await chrome.storage.local.set({ [VARIATION_SEQUENCE_KEY]: sequence });
+  } catch {
+    sequence = Date.now();
+  }
+
+  const random = new Uint32Array(1);
+  crypto.getRandomValues(random);
+  return `v${sequence}-${random[0].toString(36)}`;
+}
 
 export interface FillCheckpoint {
   version: 1;

@@ -19,6 +19,8 @@ export interface ChatRequest {
   temperature: number;
   /** Ask for a JSON object when the provider supports response formats. */
   jsonMode: boolean;
+  /** OpenAI-compatible reasoning control, used by Gemini thinking models. */
+  reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
 }
 
 export interface ProviderDefinition {
@@ -217,6 +219,9 @@ export function prepareRequest(
   };
   if (request.jsonMode) body.response_format = { type: "json_object" };
   if (provider.id === "openrouter") body.include_reasoning = false;
+  if (provider.id === "google" && request.reasoningEffort) {
+    body.reasoning_effort = request.reasoningEffort;
+  }
 
   return { url: `${base}/chat/completions`, headers, body: JSON.stringify(body) };
 }

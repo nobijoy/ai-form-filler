@@ -134,6 +134,11 @@ export interface FieldDescriptor {
  * constrained to a fixed set of keys for one particular form.
  */
 export interface RunContext {
+  /**
+   * Unique for each manual run. It asks the model and local heuristics for a
+   * different synthetic profile while keeping every step in that run coherent.
+   */
+  variationSeed: string;
   /** Facts about the form discovered while filling, e.g. { orderType: "delivery" }. */
   facts: Record<string, string>;
   /**

@@ -202,9 +202,9 @@ function encodeRunContext(context: RunContext | undefined): unknown {
   const hasFacts = Object.keys(context.facts).length > 0;
   const hasIdentity = Object.keys(context.identity).length > 0;
   const hasSummaries = context.stepSummaries.length > 0;
-  if (!hasFacts && !hasIdentity && !hasSummaries) return undefined;
 
   return {
+    variationSeed: context.variationSeed,
     facts: hasFacts ? context.facts : undefined,
     // Reusing these keeps "confirm email" style fields consistent across steps.
     alreadyUsed: hasIdentity ? context.identity : undefined,
@@ -261,6 +261,8 @@ function systemPrompt(settings: ExtensionSettings, snapshot: FillSnapshot): stri
     `- A field with "requiresChecked" only applies when that checkbox is set to true. Otherwise omit it.`,
     `- Never echo a field's placeholder or label back as its value.`,
     `- Data must be plausible but obviously synthetic, e.g. emails at example.com.`,
+    `- This run has a context.variationSeed. Use it as inspiration to produce a fresh synthetic person and choices. Different seeds must not repeatedly produce the same default names, dates, addresses, employers or prose.`,
+    `- Keep values internally consistent within this run by reusing context.alreadyUsed; variation is between runs, not between fields that describe the same person.`,
     `- Reuse values from context.alreadyUsed when a field asks for the same information again.`,
     `- When "corrections" is present the page rejected your previous answer: read the message and return a value that satisfies it.`,
     `- Fill every required field, plus optional fields a real user would reasonably complete.`,
@@ -302,6 +304,21 @@ function tokenBudgets(snapshot: FillSnapshot): number[] {
   return [primary, Math.round(primary * 0.7), 400];
 }
 
+function isGeminiThinkingModel(model: string): boolean {
+  return /(?:^|\/)gemini-(?:2\.5|3(?:[.-]|$))/i.test(model);
+}
+
+/**
+ * Gemini's max_tokens includes hidden thinking. Even at minimal reasoning it
+ * needs headroom beyond the visible JSON, otherwise a 12-field response can be
+ * cut after only a handful of values.
+ */
+function providerTokenBudgets(providerId: LlmProviderId, budgets: number[]): number[] {
+  if (providerId !== "google") return budgets;
+  const primary = Math.max(4096, budgets[0] + 2048);
+  return [Math.min(8192, primary), 3072, 2048];
+}
+
 // ---------------------------------------------------------------------------
 // Fill
 // ---------------------------------------------------------------------------
@@ -321,6 +338,42 @@ interface HttpResult {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Providers often put the real delay in the JSON error body rather than the
+ * Retry-After header (for example: "Please retry in 4.88s" or
+ * {"retryDelay":"5s"}). Respect it instead of hammering the API after 400 ms.
+ */
+function retryDelayFromBody(body: string): number | undefined {
+  const match =
+    /(?:retry(?:\s+after|\s+in)?|try\s+again\s+in|retryDelay["']?\s*[:=])\s*["']?(\d+(?:\.\d+)?)\s*(ms|s|sec|seconds?)?/i.exec(
+      body,
+    );
+  if (!match) return undefined;
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) return undefined;
+  const milliseconds = match[2]?.toLowerCase() === "ms" ? amount : amount * 1000;
+  // A small cushion avoids retrying on the exact edge of the provider window.
+  return Math.min(120_000, Math.ceil(milliseconds) + 500);
+}
+
+function retryAfterHeaderMs(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds > 0) return seconds * 1000;
+
+  const date = Date.parse(value);
+  if (!Number.isFinite(date)) return undefined;
+  const delay = date - Date.now();
+  return delay > 0 ? delay : undefined;
+}
+
+function fallbackRetryDelayMs(attempt: number): number {
+  // Attempts are zero-based: approximately 3–3.75s, then 7–7.75s.
+  const base = attempt === 0 ? 3000 : 7000;
+  return base + Math.random() * 750;
 }
 
 function isTransientStatus(status: number, body: string): boolean {
@@ -391,6 +444,8 @@ async function runProvider(
       userMessages,
       model,
       maxTokens,
+      reasoningEffort:
+        providerId === "google" && isGeminiThinkingModel(model) ? "minimal" : undefined,
     });
 
     const res = await fetch(prepared.url, {
@@ -400,12 +455,13 @@ async function runProvider(
     });
     const body = await res.text();
 
-    const retryAfter = Number(res.headers.get("retry-after"));
+    const retryAfter =
+      retryAfterHeaderMs(res.headers.get("retry-after")) ?? retryDelayFromBody(body);
     return {
       ok: res.ok,
       status: res.status,
       body,
-      retryAfterMs: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : undefined,
+      retryAfterMs: retryAfter,
     };
   };
 
@@ -413,7 +469,7 @@ async function runProvider(
     let lastError = "";
     let strictRetryUsed = false;
 
-    for (const maxTokens of budgets) {
+    budgetLoop: for (const maxTokens of budgets) {
       for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_MODEL; attempt++) {
         const messages = [...request.userMessages];
         if (strictRetryUsed) {
@@ -441,7 +497,7 @@ async function runProvider(
           }
 
           if (isTransientStatus(result.status, result.body) && attempt < MAX_ATTEMPTS_PER_MODEL - 1) {
-            await sleep(result.retryAfterMs ?? 400 * (attempt + 1) + Math.random() * 300);
+            await sleep(result.retryAfterMs ?? fallbackRetryDelayMs(attempt));
             continue;
           }
           break;
@@ -465,6 +521,17 @@ async function runProvider(
             continue;
           }
           break;
+        }
+
+        if (reply.finishReason === "length") {
+          lastError = `Model exhausted ${maxTokens} completion tokens before finishing its JSON.`;
+          // One strict retry at the same (largest viable) budget may remove
+          // unnecessary prose/context. A smaller budget cannot fix truncation.
+          if (!strictRetryUsed) {
+            strictRetryUsed = true;
+            continue;
+          }
+          break budgetLoop;
         }
 
         try {
@@ -542,7 +609,9 @@ export async function callLlmForFill(
   const request: Omit<ChatRequest, "model" | "maxTokens"> = {
     systemPrompt: systemPrompt(settings, snapshot),
     userMessages: [buildUserPayload(snapshot)],
-    temperature: 0.2,
+    // The per-run seed provides explicit variation; a moderate temperature
+    // prevents deterministic models from ignoring it while remaining reliable.
+    temperature: 0.45,
     jsonMode: true,
   };
 
@@ -563,12 +632,13 @@ export async function callLlmForFill(
     }
 
     try {
+      const budgetsForProvider = providerTokenBudgets(providerId, budgets);
       const values = await runProvider(
         providerId,
         settings,
         apiKey,
         request,
-        budgets,
+        budgetsForProvider,
         callBudget,
         requestedSids,
       );

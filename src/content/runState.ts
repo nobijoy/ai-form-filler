@@ -1,6 +1,12 @@
 import { beginEpoch, currentEpoch, resetEpoch, sidBelongsToEpoch } from "./fieldId";
 import type { FieldDescriptor, RunContext } from "../shared/types";
 
+function createVariationSeed(): string {
+  const bytes = new Uint32Array(2);
+  crypto.getRandomValues(bytes);
+  return `${Date.now().toString(36)}-${bytes[0].toString(36)}${bytes[1].toString(36)}`;
+}
+
 /**
  * Semantic slots worth carrying between steps so that a later "confirm email"
  * or read-only summary matches what was entered earlier.
@@ -49,9 +55,15 @@ export class RunState {
   /** sid -> consecutive failed attempts, used to report genuinely stuck fields. */
   private readonly attemptCounts = new Map<string, number>();
 
-  readonly context: RunContext = { facts: {}, identity: {}, stepSummaries: [] };
+  readonly context: RunContext;
 
-  constructor() {
+  constructor(variationSeed = createVariationSeed()) {
+    this.context = {
+      variationSeed,
+      facts: {},
+      identity: {},
+      stepSummaries: [],
+    };
     resetEpoch();
     this.stepEpoch = beginEpoch();
     this.stepNumber = 1;
@@ -63,6 +75,7 @@ export class RunState {
    */
   static resumeFrom(context: RunContext, nextStep: number): RunState {
     const state = new RunState();
+    state.context.variationSeed = context.variationSeed || state.context.variationSeed;
     state.context.facts = { ...context.facts };
     state.context.identity = { ...context.identity };
     state.context.stepSummaries = [...context.stepSummaries];

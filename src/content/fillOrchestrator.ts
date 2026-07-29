@@ -10,6 +10,7 @@ import { validateAiResponse } from "./validate";
 import {
   clearCheckpoint,
   formKeyFromLocation,
+  reserveVariationSeed,
   saveCheckpoint,
   type FillCheckpoint,
 } from "./runPersistence";
@@ -207,7 +208,7 @@ export async function runFillOrchestration(
 
   const state = resume
     ? RunState.resumeFrom(resume.context, resume.nextStep)
-    : new RunState();
+    : new RunState(await reserveVariationSeed());
   const docLocale = resolveDocumentLocale();
   const fillLocale = resolveFillLocale(
     settings.fillLanguage,
@@ -247,6 +248,7 @@ export async function runFillOrchestration(
       fieldsFilled,
       warnings: [...warnings],
       context: {
+        variationSeed: state.context.variationSeed,
         facts: { ...state.context.facts },
         identity: { ...state.context.identity },
         stepSummaries: [...state.context.stepSummaries],
@@ -665,7 +667,12 @@ async function applyHeuristics(params: StepParams): Promise<number> {
 
   const values: Record<string, string> = {};
   for (const field of candidates) {
-    const value = tryHeuristicValue(field, state.context.identity);
+    const value = tryHeuristicValue(
+      field,
+      state.context.identity,
+      state.context.variationSeed,
+      params.fillLocale,
+    );
     if (value !== null) values[field.syntheticId] = value;
   }
 
