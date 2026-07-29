@@ -1,32 +1,38 @@
 import { isFillableField } from "../shared/fillable";
-import { normalizeApiKey } from "./storage";
 import { parseLlmValues, parseNavigationDecision } from "../shared/llmResponseSchema";
-import { PROVIDERS } from "../shared/providers";
+import {
+  PROVIDERS,
+  prepareRequest,
+  readProviderError,
+  readReply,
+  type ChatRequest,
+  type ProviderDefinition,
+} from "../shared/providers";
 import type {
   ExtensionSettings,
+  FieldDescriptor,
   FillSnapshot,
   LlmProviderId,
+  ModelOption,
   NavigationSnapshot,
-  OpenRouterModelOption,
+  RunContext,
 } from "../shared/types";
 
-const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
-const APP_URL = "https://nobijoy.vercel.app/";
-const APP_TITLE = "AI Form Filler Extension";
-const MAX_HTTP_CALLS_PER_LLM_FILL = 12;
+const MAX_HTTP_CALLS_PER_FILL = 8;
+const MAX_ATTEMPTS_PER_MODEL = 3;
+const CUSTOM_REQUEST_LIMIT = 1500;
 
-interface OpenRouterModelRecord {
+// ---------------------------------------------------------------------------
+// Model discovery
+// ---------------------------------------------------------------------------
+
+interface ModelRecord {
   id?: string;
   name?: string;
+  display_name?: string;
   context_length?: number | null;
-  pricing?: {
-    prompt?: string;
-    completion?: string;
-  };
-}
-
-interface OpenRouterModelsResponse {
-  data?: OpenRouterModelRecord[];
+  context_window?: number | null;
+  pricing?: { prompt?: string | number; completion?: string | number };
 }
 
 function formatContextLabel(contextLength: number): string {
@@ -35,653 +41,619 @@ function formatContextLabel(contextLength: number): string {
   return `${contextLength} context`;
 }
 
-function isFreePricing(m: OpenRouterModelRecord): boolean {
-  const p = m.pricing?.prompt;
-  const c = m.pricing?.completion;
-  const free = (v: unknown) => v === "0" || v === 0;
-  return free(p) && free(c);
-}
-
-function mapToModelOption(model: OpenRouterModelRecord): OpenRouterModelOption | null {
-  if (!model.id) return null;
-  const contextLength = Number.isFinite(model.context_length ?? NaN)
-    ? Number(model.context_length)
-    : 0;
-  const name = (model.name?.trim() || model.id).trim();
+function toModelOption(record: ModelRecord): ModelOption | null {
+  if (!record.id) return null;
+  const contextLength = Number(record.context_length ?? record.context_window ?? 0);
+  const safeContext = Number.isFinite(contextLength) ? contextLength : 0;
+  const name = (record.display_name || record.name || record.id).trim();
   return {
-    id: model.id,
+    id: record.id,
     name,
-    contextLength,
-    label: `${name} - ${formatContextLabel(contextLength)}`,
+    contextLength: safeContext,
+    label: `${name} - ${formatContextLabel(safeContext)}`,
   };
 }
 
-function fallbackModelsWithDefault(provider: LlmProviderId): OpenRouterModelOption[] {
-  return PROVIDERS[provider].fallbackModels;
+function modelsEndpointFor(provider: ProviderDefinition, baseUrl: string): string | null {
+  const base = baseUrl.replace(/\/+$/, "");
+  if (provider.kind === "anthropic") return `${base}/v1/models`;
+  return `${base}/models`;
 }
 
-export async function getProviderModels(
-  provider: LlmProviderId,
-  apiKey?: string,
-): Promise<{
-  models: OpenRouterModelOption[];
-  fromFallback: boolean;
-}> {
-  if (provider !== "openrouter") {
-    return { models: fallbackModelsWithDefault(provider), fromFallback: false };
-  }
-  try {
-    const headers: Record<string, string> = {};
-    const k = apiKey ? normalizeApiKey(apiKey) : "";
-    if (k) headers.Authorization = `Bearer ${k}`;
-    const res = await fetch(OPENROUTER_MODELS_URL, { method: "GET", headers });
-    if (!res.ok) throw new Error(`Model list request failed: ${res.status}`);
-    const payload = (await res.json()) as OpenRouterModelsResponse;
-    if (!payload.data || !Array.isArray(payload.data)) throw new Error("Invalid models payload");
-
-    const freeModels = payload.data
-      .filter((m) => isFreePricing(m))
-      .map(mapToModelOption)
-      .filter((m): m is OpenRouterModelOption => !!m)
-      .sort((a, b) => b.contextLength - a.contextLength);
-
-    const unique = new Map<string, OpenRouterModelOption>();
-    for (const m of freeModels) unique.set(m.id, m);
-    const deduped = Array.from(unique.values());
-    return { models: [PROVIDERS.openrouter.fallbackModels[0], ...deduped], fromFallback: false };
-  } catch {
-    return { models: fallbackModelsWithDefault(provider), fromFallback: true };
-  }
-}
-
-/** max 1 — mutually exclusive (kept in sync with fillOrchestrator.ts CBG_EXCLUSIVE_TITLE) */
-const EXCLUSIVE_BY_TITLE =
-  /性別|国籍|外国籍|雇用形態|就業形態|勤務スタイル|不採用条件/i;
-/** max 1 — detected from label content when group is small */
-const EXCLUSIVE_GROUP_PATTERN =
-  /gender|性別|male|female|男性|女性|問わず|불문|yes.{0,5}no|はい.{0,5}いいえ|あり.{0,5}なし|有.{0,5}無/i;
-/** max 2 — age bands, welfare items, appeal points */
-const TWO_MAX_BY_TITLE = /年代|年齢層|福利厚生|アピールポイント/i;
-/** max 3 — small-selection groups */
-const SMALL_MAX_BY_TITLE =
-  /給与.*補足|選考フロー|職場環境|フロー|PRポイント|アピール|勤務形態|就業形態|働き方|応募条件|採用条件/i;
-/** max 4 — insurance options */
-const INSURANCE_TITLE = /保険|insurance/i;
-/** max 3 — holiday / leave types */
-const HOLIDAY_TITLE = /休日|holiday|休暇/i;
-
-function inferCbgMax(labels: string[], groupTitle = ""): number {
-  const combined = [groupTitle, ...labels].join(" ");
-
-  if (EXCLUSIVE_BY_TITLE.test(groupTitle)) return 1;
-  if (labels.length <= 4 && EXCLUSIVE_GROUP_PATTERN.test(combined)) return 1;
-
-  if (TWO_MAX_BY_TITLE.test(groupTitle)) return Math.min(labels.length, 2);
-  if (INSURANCE_TITLE.test(groupTitle)) return Math.min(labels.length, 4);
-  if (HOLIDAY_TITLE.test(groupTitle)) return Math.min(labels.length, 3);
-  if (SMALL_MAX_BY_TITLE.test(groupTitle)) return Math.min(labels.length, 3);
-
-  return labels.length;
-}
-
-function inferCbgTitle(labels: string[]): string {
-  if (labels.length === 0) return "";
-  let prefix = labels[0];
-  for (const l of labels.slice(1)) {
-    let i = 0;
-    while (i < prefix.length && i < l.length && prefix[i] === l[i]) i++;
-    prefix = prefix.slice(0, i);
-  }
-  const trimmed = prefix.trim().replace(/[：:・\-_/\\]+$/, "").trim();
-  return trimmed.length >= 2 ? trimmed : "";
-}
-
-function groupCheckboxFields(
-  fields: Array<Record<string, unknown>>,
-): Array<Record<string, unknown>> {
-  const out: Array<Record<string, unknown>> = [];
-  let buf: Array<Record<string, unknown>> = [];
-  let currentGrp: unknown = Symbol(); // unique sentinel so first item always starts fresh
-
-  const flush = () => {
-    if (buf.length === 0) return;
-    if (buf.length === 1) {
-      const { grp: _g, ...rest } = buf[0] as Record<string, unknown>;
-      out.push(rest);
-    } else {
-      const groupTitle = String(buf[0].grp ?? "");
-      const labels = buf.map((f) => String(f.l ?? ""));
-      const title = groupTitle || inferCbgTitle(labels);
-      const max = inferCbgMax(labels, groupTitle);
-      out.push({
-        type: "cbg",
-        title,
-        mode: buf.some((f) => !!f.req) ? "required" : "optional",
-        max,
-        items: buf.map((f) => [f.sid, f.l]),
-      });
-    }
-    buf = [];
-  };
-
-  for (const f of fields) {
-    if (f.type === "checkbox") {
-      const fGrp = f.grp;
-      // Flush buffer when the logical group changes (different formPurpose)
-      if (buf.length > 0 && fGrp !== currentGrp) {
-        flush();
-      }
-      currentGrp = fGrp;
-      buf.push(f);
-    } else {
-      flush();
-      currentGrp = Symbol(); // reset sentinel for next checkbox run
-      out.push(f);
-    }
-  }
-  flush();
-  return out;
-}
-
-function buildUserPayload(snapshot: FillSnapshot, personaNote: string): string {
-  const eligibleFields = snapshot.fields.filter(isFillableField);
-
-  const rawCompact = eligibleFields.map((f) => {
-    const base = { sid: f.syntheticId, req: !!f.required || undefined };
-
-    if (f.inputType === "checkbox") {
-      return {
-        ...base,
-        type: "checkbox",
-        l: (f.labelText ?? "").slice(0, 80),
-        // grp drives group-boundary detection and per-group max inference
-        grp: f.formPurpose?.slice(0, 60).trim() || undefined,
-      };
-    }
-
-    if (f.inputType === "radio") {
-      return {
-        ...base,
-        type: "radio",
-        l: (f.labelText ?? "").slice(0, 80),
-        o: f.radioChoices?.map((o) => o.value).filter((v) => v !== "").slice(0, 20),
-      };
-    }
-
+function modelsHeadersFor(provider: ProviderDefinition, apiKey: string): Record<string, string> {
+  if (provider.kind === "anthropic") {
     return {
-      ...base,
-      type: f.inputType,
-      l: (f.labelText ?? f.ariaLabel ?? "").slice(0, 120),
-      ph: f.placeholder?.slice(0, 60) || undefined,
-      o: f.options?.map((o) => o.value).filter((v) => v !== "").slice(0, 40),
-      maxLen: f.maxLength || undefined,
-      pat: f.pattern || undefined,
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
     };
-  });
+  }
+  return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+}
 
-  // Group consecutive checkboxes into cbg entries
-  const groupedFields = groupCheckboxFields(rawCompact as Array<Record<string, unknown>>);
+/**
+ * Live model list where the provider offers one, static fallback otherwise.
+ * Never throws: an unavailable list must not block configuration.
+ */
+export async function getProviderModels(
+  providerId: LlmProviderId,
+  apiKey?: string,
+  baseUrlOverride?: string,
+): Promise<{ models: ModelOption[]; fromFallback: boolean }> {
+  const provider = PROVIDERS[providerId];
+  const fallback = { models: provider.fallbackModels, fromFallback: true };
 
-  const payload: Record<string, unknown> = {
-    locale: snapshot.fillLocale || snapshot.documentLocale,
-    form: snapshot.pageTitle?.slice(0, 80) || undefined,
-    section: snapshot.chunkSection || undefined,
-    ctx: snapshot.chunkCtx && Object.keys(snapshot.chunkCtx).length > 0
-      ? snapshot.chunkCtx
-      : undefined,
-    persona: personaNote || undefined,
-    fields: groupedFields,
+  const key = (apiKey ?? "").trim();
+  if (!key) return fallback;
+
+  const endpoint = modelsEndpointFor(provider, baseUrlOverride?.trim() || provider.defaultBaseUrl);
+  if (!endpoint) return fallback;
+
+  try {
+    const res = await fetch(endpoint, { headers: modelsHeadersFor(provider, key) });
+    if (!res.ok) return fallback;
+
+    const payload = (await res.json()) as { data?: ModelRecord[]; models?: ModelRecord[] };
+    const records = payload.data ?? payload.models;
+    if (!Array.isArray(records)) return fallback;
+
+    const options = records
+      .map(toModelOption)
+      .filter((option): option is ModelOption => option !== null)
+      .sort((a, b) => b.contextLength - a.contextLength || a.id.localeCompare(b.id));
+
+    if (options.length === 0) return fallback;
+
+    // Keep the curated default first so a sensible model is preselected.
+    const preferred = options.filter((option) => option.id === provider.defaultModel);
+    const rest = options.filter((option) => option.id !== provider.defaultModel);
+    return { models: [...preferred, ...rest], fromFallback: false };
+  } catch {
+    return fallback;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Prompt construction
+// ---------------------------------------------------------------------------
+
+function fieldLabel(field: FieldDescriptor): string {
+  return (field.labelText ?? field.ariaLabel ?? field.name ?? "").slice(0, 140);
+}
+
+/**
+ * Options are sent as `[value, label]` pairs.
+ *
+ * Sending only machine values (`["1","2"]`) left the model guessing what an
+ * option meant, so its answers were rejected for not matching. With the visible
+ * label present it can choose meaningfully, and either form resolves on apply.
+ */
+function encodeOptions(options: { value: string; label: string }[] | undefined): unknown {
+  if (!options || options.length === 0) return undefined;
+  return options
+    .filter((option) => option.value !== "" || option.label !== "")
+    .slice(0, 40)
+    .map((option) => (option.label && option.label !== option.value
+      ? [option.value, option.label.slice(0, 60)]
+      : [option.value]));
+}
+
+interface CompactField {
+  sid: string;
+  type: string;
+  label: string;
+  required?: true;
+  group?: string;
+  placeholder?: string;
+  options?: unknown;
+  maxLen?: number;
+  pattern?: string;
+  min?: string;
+  max?: string;
+  lang?: string;
+  /** The field's own help text, which usually states the required format. */
+  help?: string;
+  hint?: string;
+  /** Set when this field only applies if another checkbox is selected. */
+  requiresChecked?: string;
+  /** Present when the DOM caps how many of a group may be selected. */
+  maxSelections?: number;
+  current?: string;
+}
+
+function compactField(field: FieldDescriptor): CompactField {
+  const compact: CompactField = {
+    sid: field.syntheticId,
+    type: field.kind ?? field.inputType ?? field.tag,
+    label: fieldLabel(field),
   };
 
-  // Strip null/undefined/empty-string values from serialized output
-  return JSON.stringify(
-    payload,
-    (_, v) => (v === undefined || v === null || v === "" ? undefined : v),
-    0,
+  if (field.required) compact.required = true;
+  if (field.checkboxGroupKey) compact.group = field.checkboxGroupKey;
+  if (field.maxSelections) compact.maxSelections = field.maxSelections;
+  if (field.placeholder) compact.placeholder = field.placeholder.slice(0, 80);
+  if (field.maxLength) compact.maxLen = field.maxLength;
+  if (field.pattern) compact.pattern = field.pattern;
+  if (field.min) compact.min = field.min;
+  if (field.max) compact.max = field.max;
+  if (field.fieldLocale) compact.lang = field.fieldLocale;
+  if (field.controllingCheckboxSid) compact.requiresChecked = field.controllingCheckboxSid;
+  if (field.currentValue) compact.current = field.currentValue.slice(0, 60);
+
+  const options = encodeOptions(field.options ?? field.radioChoices);
+  if (options) compact.options = options;
+
+  // Always sent: this is where forms state the format they expect, so it is the
+  // difference between a guessed phone number and a conforming one.
+  if (field.describedByText) compact.help = field.describedByText.slice(0, 160);
+
+  // Surrounding copy is a weaker signal, worth the tokens only when the field is
+  // otherwise poorly described.
+  const poorlyDescribed = compact.label.length < 4 || (!!field.pattern && !compact.help);
+  if (poorlyDescribed && field.surroundingText) {
+    compact.hint = field.surroundingText.slice(0, 160);
+  }
+
+  return compact;
+}
+
+function encodeRunContext(context: RunContext | undefined): unknown {
+  if (!context) return undefined;
+  const hasFacts = Object.keys(context.facts).length > 0;
+  const hasIdentity = Object.keys(context.identity).length > 0;
+  const hasSummaries = context.stepSummaries.length > 0;
+  if (!hasFacts && !hasIdentity && !hasSummaries) return undefined;
+
+  return {
+    facts: hasFacts ? context.facts : undefined,
+    // Reusing these keeps "confirm email" style fields consistent across steps.
+    alreadyUsed: hasIdentity ? context.identity : undefined,
+    previousSteps: hasSummaries ? context.stepSummaries.slice(-6) : undefined,
+  };
+}
+
+function buildUserPayload(snapshot: FillSnapshot): string {
+  const eligible = snapshot.fields.filter(isFillableField);
+
+  const payload = {
+    language: snapshot.fillLocale || snapshot.documentLocale,
+    page: snapshot.pageTitle?.slice(0, 100) || undefined,
+    step: snapshot.stepIndex,
+    section: snapshot.chunkSection || undefined,
+    context: encodeRunContext(snapshot.runContext),
+    corrections:
+      snapshot.validationErrors && snapshot.validationErrors.length > 0
+        ? snapshot.validationErrors.slice(0, 12)
+        : undefined,
+    retryOnly: snapshot.retryOnly,
+    fields: eligible.map(compactField),
+  };
+
+  return JSON.stringify(payload, (_key, value) =>
+    value === undefined || value === null || value === "" ? undefined : value,
   );
 }
 
-function systemPrompt(_settings: ExtensionSettings): string {
-  return `You fill QA test forms with realistic fake data.
-Return only minified valid JSON: field id -> string value.
-Use the locale, section, ctx, and field labels to understand what values are appropriate.
-Respect required, type, pattern, maxLen, and exact select/radio option values.
-For cbg checkbox groups: return only selected ids as "true"; omit unchecked ids entirely; respect each group's max; select only one for mutually exclusive groups (gender, yes/no, あり/なし, 男性/女性/問わず).
-Never return non-boolean values for checkbox fields.
-Fill required empty fields and obvious optional identity/contact/profile fields.
-Do not fill every optional checkbox.
-You may include a small _ctx object with key facts discovered in this chunk (e.g. jobCategory, employmentType, location, workStyle, salaryType, companySummary, candidateProfile).
-Use realistic but obviously fake test data (e.g. emails like test.user+tag@example.com).
-Return values matching the locale and field labels.
-No markdown. No commentary.`;
+function languageDirective(settings: ExtensionSettings, snapshot: FillSnapshot): string {
+  const explicit = settings.fillLanguage === "override" && settings.fillLocaleOverride.trim();
+  const target = explicit
+    ? settings.fillLocaleOverride.trim()
+    : snapshot.fillLocale || snapshot.documentLocale;
+
+  const base = explicit
+    ? `Write every generated value in ${target}, regardless of the page's own language.`
+    : `Write values in the language of the form (${target}). Names, addresses and free text must look native to that language, not transliterated English.`;
+
+  return `${base} A field carrying its own "lang" differs from the form default: follow the field's language for that field.`;
 }
 
-function extractProviderError(raw: string): { code?: number; message?: string; raw?: string } | null {
-  try {
-    const parsed = JSON.parse(raw) as {
-      error?: { code?: number; message?: string; metadata?: { raw?: string } } | string;
-      code?: string;
-    };
-    if (!parsed.error && !parsed.code) return null;
-    // xAI flat format: { error: "string message", code: "description" }
-    if (typeof parsed.error === "string") {
-      return { message: parsed.error };
-    }
-    const error = parsed.error;
-    if (!error || typeof error !== "object") return null;
-    return {
-      code: typeof error.code === "number" ? error.code : undefined,
-      message: typeof error.message === "string" ? error.message : undefined,
-      raw: typeof error.metadata?.raw === "string" ? error.metadata.raw : undefined,
-    };
-  } catch {
-    return null;
+function systemPrompt(settings: ExtensionSettings, snapshot: FillSnapshot): string {
+  const sections: string[] = [
+    `You generate realistic test data for QA engineers filling web forms.`,
+    `Reply with a minified JSON object mapping each field's "sid" to a string value. No markdown, no commentary.`,
+    ``,
+    `Rules:`,
+    `- Respect required, type, maxLen, min and max.`,
+    `- "pattern" is a JavaScript regular expression the value must match in full. "help" is the field's own instruction text. When either states a format, follow it literally, including separators: for pattern "0\\d{2}-\\d{4}-\\d{4}" answer "090-1234-5678", not "+81 90 1234 5678".`,
+    `- For select, radio and combobox fields answer with one of the given options: either its value or its visible label, copied exactly.`,
+    `- For checkbox and switch fields answer only "true" or "false". Omit the ones you leave unchecked.`,
+    `- Fields sharing a "group" form one multi-select. Choose the combination a real user would pick; honour "maxSelections" when present.`,
+    `- A field with "requiresChecked" only applies when that checkbox is set to true. Otherwise omit it.`,
+    `- Never echo a field's placeholder or label back as its value.`,
+    `- Data must be plausible but obviously synthetic, e.g. emails at example.com.`,
+    `- Reuse values from context.alreadyUsed when a field asks for the same information again.`,
+    `- When "corrections" is present the page rejected your previous answer: read the message and return a value that satisfies it.`,
+    `- Fill every required field, plus optional fields a real user would reasonably complete.`,
+    `- You may add a "_ctx" object of short facts about this form worth remembering for later steps.`,
+    ``,
+    languageDirective(settings, snapshot),
+  ];
+
+  const custom = settings.customRequest.trim();
+  if (custom) {
+    sections.push(
+      ``,
+      `USER RULES (highest priority, override anything above that conflicts):`,
+      custom.slice(0, CUSTOM_REQUEST_LIMIT),
+    );
   }
+
+  return sections.join("\n");
 }
 
-export async function testProviderKey(
-  provider: LlmProviderId,
-  apiKey: string,
-  baseUrl: string,
-  model: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${normalizeApiKey(apiKey)}`,
-    };
-    if (provider === "openrouter") {
-      headers["HTTP-Referer"] = APP_URL;
-      headers["X-Title"] = APP_TITLE;
-    }
-    const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user" as const, content: "Hi" }],
-        max_tokens: 1,
-      }),
-    });
-    if (res.status === 401) {
-      let msg = "";
-      try {
-        const body = (await res.json()) as { error?: { message?: string } | string };
-        msg = typeof body.error === "string" ? body.error : (body.error?.message ?? "");
-      } catch { /* ignore */ }
-      return { ok: false, error: `Invalid API key (401)${msg ? ": " + msg : ""}` };
-    }
-    if (res.status === 403) {
-      let msg = "";
-      try {
-        const body = (await res.json()) as { error?: { message?: string } | string; code?: string };
-        msg = typeof body.error === "string" ? body.error : (body.error?.message ?? body.code ?? "");
-      } catch { /* ignore */ }
-      // 403 = key is valid but no credits/permission — flag as billing issue, not bad key
-      return {
-        ok: false,
-        error: `No credits or access (403)${msg ? ": " + msg : ""}. Purchase credits to use this provider.`,
-      };
-    }
-    // Any other response (200, 400 bad params, 429 rate-limit) means the key itself is valid.
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-function computeTokenBudgets(snapshot: FillSnapshot): number[] {
-  const section = snapshot.chunkSection;
+/**
+ * Output budget scaled to what the chunk actually needs; retried at smaller
+ * sizes if the provider rejects the request as too large.
+ */
+function tokenBudgets(snapshot: FillSnapshot): number[] {
   const fields = snapshot.fields;
+  const proseCount = fields.filter(
+    (field) => field.kind === "textarea" || field.kind === "contenteditable",
+  ).length;
+  const booleanCount = fields.filter(
+    (field) => field.kind === "checkbox" || field.kind === "aria-switch",
+  ).length;
 
-  if (section === "retry") return [400, 300];
+  if (booleanCount === fields.length && fields.length > 0) return [400, 300];
+  if (proseCount >= 2) return [1600, 1100, 700];
 
-  const checkboxCount = fields.filter((f) => f.inputType === "checkbox").length;
-  const textareaCount = fields.filter((f) => f.tag === "textarea").length;
-
-  // Pure checkbox chunk — responses are just a few "true" values
-  if (checkboxCount === fields.length) return [300, 250];
-
-  // Textarea-heavy chunks need more tokens for generated text
-  if (textareaCount >= 2) return [900, 700, 500];
-
-  if (section === "basic_info") return [600, 450, 300];
-
-  // Default: mixed text/select chunks
-  return [700, 500, 350];
+  const estimate = 120 + fields.length * 70 + proseCount * 350;
+  const primary = Math.min(2000, Math.max(400, estimate));
+  return [primary, Math.round(primary * 0.7), 400];
 }
 
+// ---------------------------------------------------------------------------
+// Fill
+// ---------------------------------------------------------------------------
+
+export interface FillOutcome {
+  ok: boolean;
+  values?: Record<string, string>;
+  error?: string;
+}
+
+interface HttpResult {
+  ok: boolean;
+  status: number;
+  body: string;
+  retryAfterMs?: number;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientStatus(status: number, body: string): boolean {
+  return status === 429 || status >= 500 || /rate.?limit|temporarily|try again/i.test(body);
+}
+
+function isRateLimit(status: number, message: string): boolean {
+  return status === 429 || /rate.?limit|too many request|quota/i.test(message);
+}
+
+/**
+ * Keeps only keys that belong to the current chunk.
+ *
+ * Some small models occasionally mirror the payload shape (`language`, `page`,
+ * `context`, `corrections`) instead of answering with sid -> value pairs. That
+ * is valid JSON, so a plain parse treats it as success and wastes the round.
+ * Requiring at least one requested sid turns that failure mode into a retry.
+ */
+function extractRequestedValues(
+  values: Record<string, string>,
+  requestedSids: Set<string>,
+): { matched: Record<string, string>; answeredCount: number } {
+  const matched: Record<string, string> = {};
+  let answeredCount = 0;
+
+  for (const [key, value] of Object.entries(values)) {
+    if (key === "_ctx") {
+      matched[key] = value;
+      continue;
+    }
+    if (!requestedSids.has(key)) continue;
+    matched[key] = value;
+    answeredCount += 1;
+  }
+
+  return { matched, answeredCount };
+}
+
+/**
+ * Runs one chunk against one provider, walking its model candidates and output
+ * budgets. Throws with an aggregated message when every attempt fails.
+ */
+async function runProvider(
+  providerId: LlmProviderId,
+  settings: ExtensionSettings,
+  apiKey: string,
+  request: Omit<ChatRequest, "model" | "maxTokens">,
+  budgets: number[],
+  callBudget: { used: number },
+  requestedSids: Set<string>,
+): Promise<Record<string, string>> {
+  const provider = PROVIDERS[providerId];
+  const baseUrl =
+    settings.provider === providerId && settings.baseUrl.trim()
+      ? settings.baseUrl
+      : provider.defaultBaseUrl;
+
+  const perform = async (model: string, maxTokens: number, userMessages: string[]): Promise<HttpResult> => {
+    if (callBudget.used >= MAX_HTTP_CALLS_PER_FILL) {
+      throw new Error(
+        `Stopped after ${MAX_HTTP_CALLS_PER_FILL} provider requests for a single group (safety limit).`,
+      );
+    }
+    callBudget.used += 1;
+
+    const prepared = prepareRequest(provider, baseUrl, apiKey, {
+      ...request,
+      userMessages,
+      model,
+      maxTokens,
+    });
+
+    const res = await fetch(prepared.url, {
+      method: "POST",
+      headers: prepared.headers,
+      body: prepared.body,
+    });
+    const body = await res.text();
+
+    const retryAfter = Number(res.headers.get("retry-after"));
+    return {
+      ok: res.ok,
+      status: res.status,
+      body,
+      retryAfterMs: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : undefined,
+    };
+  };
+
+  const runModel = async (model: string): Promise<Record<string, string>> => {
+    let lastError = "";
+    let strictRetryUsed = false;
+
+    for (const maxTokens of budgets) {
+      for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_MODEL; attempt++) {
+        const messages = [...request.userMessages];
+        if (strictRetryUsed) {
+          const sidList = Array.from(requestedSids).slice(0, 20).join(", ");
+          messages.push(
+            `Your previous reply was unusable. Reply with only a minified JSON object whose keys are the requested sid values only${sidList ? ` (${sidList})` : ""}. Do not repeat language, page, context, corrections or field metadata. No prose, no code fences.`,
+          );
+        }
+
+        const result = await perform(model, maxTokens, messages);
+
+        if (!result.ok) {
+          const message = readProviderError(result.body);
+          lastError = `HTTP ${result.status}: ${message}`;
+
+          // Too-large requests are answered by dropping to the next budget tier.
+          if (result.status === 400 && /max[_\s-]?tokens|context length|too many tokens/i.test(message)) {
+            break;
+          }
+
+          if (result.status === 401 || result.status === 403) {
+            throw new Error(
+              `${provider.label} rejected the API key (${result.status}): ${message}. Check the key at ${provider.docsUrl}.`,
+            );
+          }
+
+          if (isTransientStatus(result.status, result.body) && attempt < MAX_ATTEMPTS_PER_MODEL - 1) {
+            await sleep(result.retryAfterMs ?? 400 * (attempt + 1) + Math.random() * 300);
+            continue;
+          }
+          break;
+        }
+
+        let reply;
+        try {
+          reply = readReply(provider, result.body);
+        } catch {
+          lastError = "Provider returned a body that was not JSON.";
+          break;
+        }
+
+        if (!reply.content) {
+          lastError =
+            reply.finishReason === "length"
+              ? "Model hit its output limit before producing JSON."
+              : "Model returned an empty response.";
+          if (attempt < MAX_ATTEMPTS_PER_MODEL - 1) {
+            await sleep(250 * (attempt + 1));
+            continue;
+          }
+          break;
+        }
+
+        try {
+          const parsed = parseLlmValues(reply.content);
+          const { matched, answeredCount } = extractRequestedValues(parsed, requestedSids);
+
+          if (answeredCount === 0) {
+            lastError =
+              reply.finishReason === "length"
+                ? "Model hit its output limit before answering any requested field ids."
+                : "Model replied with JSON, but not with values for the requested field ids.";
+            if (!strictRetryUsed) {
+              strictRetryUsed = true;
+              continue;
+            }
+            break;
+          }
+
+          return matched;
+        } catch {
+          if (!strictRetryUsed) {
+            strictRetryUsed = true;
+            lastError = "Model reply was not valid JSON; retrying with a stricter instruction.";
+            continue;
+          }
+          lastError = "Model reply was not valid JSON.";
+          break;
+        }
+      }
+    }
+
+    throw new Error(`[${model}] ${lastError || "unknown provider failure"}`);
+  };
+
+  const candidates = Array.from(
+    new Set(
+      [
+        settings.provider === providerId ? settings.model : "",
+        provider.defaultModel,
+        ...provider.fallbackModels.map((option) => option.id),
+      ].filter(Boolean),
+    ),
+  );
+
+  const errors: string[] = [];
+  for (const model of candidates) {
+    try {
+      return await runModel(model);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // A bad key or an exhausted call budget will not improve on another model.
+      if (/rejected the API key|safety limit/i.test(message)) throw error;
+      errors.push(message);
+      if (isRateLimit(0, message)) throw new Error(message);
+    }
+  }
+
+  throw new Error(errors.join(" | ") || `${provider.label} produced no usable response.`);
+}
+
+/**
+ * Requests values for one chunk.
+ *
+ * Only the selected provider is contacted, plus any the user explicitly listed
+ * as fallbacks. The previous implementation looped over every configured
+ * provider on failure, which sent scraped form contents to vendors the user had
+ * not chosen.
+ */
 export async function callLlmForFill(
   snapshot: FillSnapshot,
   settings: ExtensionSettings,
   apiKeys: Partial<Record<LlmProviderId, string>>,
-): Promise<{ ok: true; values: Record<string, string> } | { ok: false; error: string }> {
-  const personaNote =
-    settings.personaJson.trim().length > 0
-      ? `User persona JSON (use for names/emails when consistent): ${settings.personaJson.slice(0, 2000)}`
-      : "";
-
-  const bodyBase = {
-    temperature: 0.1,
-    top_p: 0.2,
-    response_format: { type: "json_object" as const },
-    messages: [
-      { role: "system" as const, content: systemPrompt(settings) },
-      {
-        role: "user" as const,
-        content: buildUserPayload(snapshot, personaNote),
-      },
-    ],
+): Promise<FillOutcome> {
+  const requestedSids = new Set(snapshot.fields.map((field) => field.syntheticId));
+  const request: Omit<ChatRequest, "model" | "maxTokens"> = {
+    systemPrompt: systemPrompt(settings, snapshot),
+    userMessages: [buildUserPayload(snapshot)],
+    temperature: 0.2,
+    jsonMode: true,
   };
 
-  const sleep = async (ms: number): Promise<void> =>
-    await new Promise((resolve) => setTimeout(resolve, ms));
-  let httpCallsUsed = 0;
+  const budgets = tokenBudgets(snapshot);
+  const callBudget = { used: 0 };
 
-  const providerOrder = Array.from(
-    new Set<LlmProviderId>([
-      settings.provider,
-      "openrouter",
-      "groq",
-      "google",
-      "cerebras",
-    ]),
+  const order = [settings.provider, ...settings.fallbackProviders].filter(
+    (id, index, all) => all.indexOf(id) === index,
   );
 
-  const runProvider = async (
-    provider: LlmProviderId,
-    extraUserHint?: string,
-  ): Promise<Record<string, string>> => {
-    const key = normalizeApiKey(apiKeys[provider] ?? "");
-    if (!key) {
-      throw new Error(`No ${PROVIDERS[provider].label} API key configured.`);
-    }
-    console.debug("[AI Form Filler] provider auth resolved", {
-      provider,
-      keyLength: key.length,
-      keyPrefix: key.slice(0, 4),
-    });
-    const base =
-      settings.provider === provider
-        ? settings.baseUrl.replace(/\/$/, "")
-        : PROVIDERS[provider].defaultBaseUrl;
-    const url = `${base}/chat/completions`;
-    const baseMessages = [...bodyBase.messages];
-    if (extraUserHint) {
-      baseMessages.push({ role: "user" as const, content: extraUserHint });
-    }
-    const baseHeaders: Record<string, string> = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
-    };
-    if (provider === "openrouter") {
-      baseHeaders["HTTP-Referer"] = APP_URL;
-      baseHeaders["X-Title"] = APP_TITLE;
+  const errors: string[] = [];
+
+  for (const providerId of order) {
+    const apiKey = (apiKeys[providerId] ?? "").trim();
+    if (!apiKey) {
+      errors.push(`[${PROVIDERS[providerId].label}] no API key saved.`);
+      continue;
     }
 
-    const perform = async (
-      model: string,
-      maxTokens: number,
-      payloadMessages: typeof baseMessages,
-    ): Promise<{
-      ok: boolean;
-      status: number;
-      text: string;
-      retryAfterMs?: number;
-      data?: {
-        choices?: {
-          finish_reason?: string | null;
-          message?: { content?: string | null; reasoning?: string | null };
-        }[];
-      };
-    }> => {
-      if (httpCallsUsed >= MAX_HTTP_CALLS_PER_LLM_FILL) {
-        throw new Error(
-          `Stopped after ${MAX_HTTP_CALLS_PER_LLM_FILL} provider requests in a single fill attempt (safety limit).`,
-        );
-      }
-      httpCallsUsed += 1;
-      console.debug("[AI Form Filler] outbound provider request", {
-        used: httpCallsUsed,
-        budget: MAX_HTTP_CALLS_PER_LLM_FILL,
-        model,
-        maxTokens,
-      });
-      const providerBody: Record<string, unknown> = {
-        ...bodyBase,
-        model,
-        max_tokens: maxTokens,
-        messages: payloadMessages,
-      };
-      // include_reasoning is OpenRouter-specific; other providers reject it with 400
-      if (provider === "openrouter") providerBody.include_reasoning = false;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: baseHeaders,
-        body: JSON.stringify(providerBody),
-      });
-      const text = await res.text();
-      const retryAfterHeader = res.headers.get("retry-after");
-      const retryAfterSec = Number(retryAfterHeader);
-      const retryAfterMs =
-        Number.isFinite(retryAfterSec) && retryAfterSec > 0 ? Math.floor(retryAfterSec * 1000) : undefined;
-      if (!res.ok) return { ok: false, status: res.status, text, retryAfterMs };
-      const data = JSON.parse(text) as {
-        choices?: {
-          finish_reason?: string | null;
-          message?: { content?: string | null; reasoning?: string | null };
-        }[];
-      };
-      return { ok: true, status: res.status, text, data, retryAfterMs };
-    };
-
-    const isTransient = (status: number, text: string): boolean =>
-      status === 429 || status >= 500 || /rate-limit|temporarily rate-limited|retry/i.test(text);
-
-    const tokenBudgets = computeTokenBudgets(snapshot);
-    const runForModel = async (model: string): Promise<Record<string, string>> => {
-      let lastErr = "";
-      let jsonParseRetried = false;
-      for (const maxTokens of tokenBudgets) {
-        for (let i = 0; i < 3; i++) {
-          console.debug("[AI Form Filler] LLM attempt", { model, maxTokens, tryIndex: i + 1 });
-          let result = await perform(model, maxTokens, baseMessages);
-
-          const needsNoSystemFallback =
-            !result.ok &&
-            result.status === 400 &&
-            /Developer instruction is not enabled/i.test(result.text);
-
-          if (needsNoSystemFallback) {
-            const compactUserPrompt = [
-              "You are a QA form test-data assistant.",
-              "Return ONLY valid minified JSON object: field id -> string.",
-              "Follow field constraints, use exact select/radio/cbg option values.",
-              "No markdown. No commentary.",
-              buildUserPayload(snapshot, personaNote),
-              extraUserHint || "",
-            ]
-              .filter(Boolean)
-              .join("\n\n");
-            result = await perform(model, maxTokens, [
-              { role: "user" as const, content: compactUserPrompt },
-            ]);
-          }
-
-          // 400 context/token limit: reduce max_tokens by moving to next tier
-          const maxTokensRejected =
-            !result.ok &&
-            result.status === 400 &&
-            /(max[_\s-]?tokens|context length|too many tokens|token limit)/i.test(result.text);
-          if (maxTokensRejected) {
-            lastErr = `API ${result.status}: ${result.text.slice(0, 500)}`;
-            break; // try next tokenBudget tier
-          }
-
-          if (!result.ok) {
-            const providerErr = extractProviderError(result.text);
-            const providerMsg = providerErr?.raw || providerErr?.message || result.text;
-            const isRateLimit =
-              result.status === 429 ||
-              providerErr?.code === 429 ||
-              /rate.?limit|too many request/i.test(providerMsg);
-            const authHint =
-              result.status === 401 ||
-              /missing authentication|invalid api key|unauthorized/i.test(providerMsg)
-                ? ` Ensure the ${PROVIDERS[provider].label} API key is set in the extension popup (${PROVIDERS[provider].docsUrl}).`
-                : "";
-            lastErr = `API ${result.status}: ${providerMsg.slice(0, 500)}${authHint}`;
-
-            if (isRateLimit) {
-              // Rate limits are transient — back off generously but do NOT count toward model failure
-              const backoff =
-                result.retryAfterMs ?? 600 * (i + 1) + Math.floor(Math.random() * 400);
-              console.warn("[AI Form Filler] rate limit — backing off", {
-                model,
-                status: result.status,
-                backoffMs: backoff,
-              });
-              await sleep(backoff);
-              // Keep retrying within the same model/tier; if all attempts exhausted the
-              // error message will contain "429" which the orchestrator detects as rate-limit
-              if (i < 2) continue;
-              break;
-            }
-
-            if (i < 2 && isTransient(result.status, result.text)) {
-              const backoff =
-                result.retryAfterMs ?? 300 * (i + 1) + Math.floor(Math.random() * 200);
-              console.warn("[AI Form Filler] transient provider error, backing off", {
-                model,
-                status: result.status,
-                backoffMs: backoff,
-              });
-              await sleep(backoff);
-              continue;
-            }
-            // Non-transient error: stop trying this model
-            break;
-          }
-
-          const data = result.data;
-          if (!data) {
-            lastErr = "Empty API response";
-            if (i < 2) {
-              await sleep(250 * (i + 1));
-              continue;
-            }
-            break;
-          }
-          const first = data.choices?.[0];
-          const content = first?.message?.content;
-          if (!content && first?.finish_reason === "length") {
-            lastErr = "Model exhausted output budget before JSON content.";
-            if (i < 2) {
-              await sleep(250 * (i + 1));
-              continue;
-            }
-            break;
-          }
-          if (!content) {
-            lastErr = "Empty model response";
-            console.warn("[AI Form Filler] empty content from provider", {
-              model,
-              finishReason: first?.finish_reason ?? null,
-              textSnippet: result.text.slice(0, 180),
-            });
-            if (i < 2) {
-              await sleep(250 * (i + 1));
-              continue;
-            }
-            break;
-          }
-
-          // Attempt JSON parse; on first failure retry once with a strict JSON-only message
-          try {
-            return parseLlmValues(content);
-          } catch {
-            if (!jsonParseRetried && i < 2) {
-              jsonParseRetried = true;
-              lastErr = "Invalid JSON in model response — retrying with strict prompt";
-              console.warn("[AI Form Filler] JSON parse failure, retrying strictly", {
-                model,
-                snippet: content.slice(0, 120),
-              });
-              // Replace last user message with strict JSON demand for the next attempt
-              const strictMessages = [
-                ...baseMessages,
-                {
-                  role: "user" as const,
-                  content:
-                    "Your last response was not valid JSON. Return ONLY a minified JSON object with no markdown, no commentary, no code fences.",
-                },
-              ];
-              const retryResult = await perform(model, maxTokens, strictMessages);
-              if (retryResult.ok) {
-                const retryContent = retryResult.data?.choices?.[0]?.message?.content;
-                if (retryContent) {
-                  try {
-                    return parseLlmValues(retryContent);
-                  } catch {
-                    lastErr = "JSON parse failed even after strict retry";
-                  }
-                }
-              }
-              break;
-            }
-            lastErr = "Invalid JSON in model response";
-            break;
-          }
-        }
-      }
-      throw new Error(`[model=${model}] ${lastErr || "unknown provider failure"}`);
-    };
-
-    const fallbackIds = PROVIDERS[provider].fallbackModels.map((m) => m.id);
-    const modelCandidates = Array.from(
-      new Set([settings.model, PROVIDERS[provider].defaultModel, ...fallbackIds].filter(Boolean)),
-    );
-    const errs: string[] = [];
-    for (const m of modelCandidates) {
-      try {
-        return await runForModel(m);
-      } catch (e) {
-        errs.push(e instanceof Error ? e.message : String(e));
-      }
+    try {
+      const values = await runProvider(
+        providerId,
+        settings,
+        apiKey,
+        request,
+        budgets,
+        callBudget,
+        requestedSids,
+      );
+      return { ok: true, values };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`[${PROVIDERS[providerId].label}] ${message}`);
+      if (/safety limit/i.test(message)) break;
     }
-    throw new Error(errs.join(" | "));
-  };
+  }
+
+  return { ok: false, error: errors.join("\n") || "No provider was able to answer." };
+}
+
+// ---------------------------------------------------------------------------
+// Key test
+// ---------------------------------------------------------------------------
+
+export async function testProviderKey(
+  providerId: LlmProviderId,
+  apiKey: string,
+  baseUrl: string,
+  model: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const provider = PROVIDERS[providerId];
 
   try {
-    const allErrs: string[] = [];
-    for (const provider of providerOrder) {
-      try {
-        const values = await runProvider(provider);
-        return { ok: true, values };
-      } catch (e1) {
-        const msg = e1 instanceof Error ? e1.message : String(e1);
-        try {
-          const values = await runProvider(
-            provider,
-            `Your previous output failed validation/parsing. Return ONLY the final minified JSON object immediately, with no reasoning, no preface, no markdown. Error: ${msg.slice(0, 400)}`,
-          );
-          return { ok: true, values };
-        } catch (e2) {
-          const msg2 = e2 instanceof Error ? e2.message : String(e2);
-          allErrs.push(`[${provider}] ${msg2}`);
-        }
-      }
+    const prepared = prepareRequest(provider, baseUrl || provider.defaultBaseUrl, apiKey, {
+      systemPrompt: "Reply with {}",
+      userMessages: ["{}"],
+      model: model || provider.defaultModel,
+      maxTokens: 4,
+      temperature: 0,
+      jsonMode: false,
+    });
+
+    const res = await fetch(prepared.url, {
+      method: "POST",
+      headers: prepared.headers,
+      body: prepared.body,
+    });
+
+    if (res.status === 401) {
+      const message = readProviderError(await res.text());
+      return { ok: false, error: `Invalid API key (401): ${message}` };
     }
-    return { ok: false, error: allErrs.join(" | ") };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    if (res.status === 403) {
+      const message = readProviderError(await res.text());
+      return {
+        ok: false,
+        error: `Key accepted but access denied (403): ${message}. This usually means no credits or the model is not enabled.`,
+      };
+    }
+
+    // 200, 400 (bad params) and 429 (rate limited) all prove the key authenticates.
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Navigation
+// ---------------------------------------------------------------------------
+
+function navigationSystemPrompt(settings: ExtensionSettings): string {
+  const base = `You choose which control advances a multi-step web form.
+Reply with only minified JSON:
+{"isMultiStep":boolean,"shouldAdvanceAfterFill":boolean,"nextControlSid":"id-or-empty","isFinalSubmit":boolean,"confidence":number}
+Pick the single best forward / next / continue control, judging by its label in any language and its position in the form.
+Never pick back, previous, cancel, reset or clear controls.
+Never pick "go to", "edit", "change section", breadcrumb, stepper or review-jump controls such as "Aller a Livraison" or "Edit billing".
+Prefer the control inside the active form that advances to the next step (Next / Continue / Suivant).
+Treat payment, order, apply and final-submit controls as final: only choose one when allowFinalSubmit is true. Labels like "Submit Application", "Submit", "Apply now" or "Place order" are final, not next-step.
+Never choose a final submit when allowFinalSubmit is false; return nextControlSid as empty instead.
+Set confidence to how certain you are, from 0 to 1.`;
+
+  const custom = settings.customRequest.trim();
+  if (!custom) return base;
+  return `${base}\n\nUSER RULES (highest priority):\n${custom.slice(0, CUSTOM_REQUEST_LIMIT)}`;
 }
 
 function buildNavigationPayload(snapshot: NavigationSnapshot, allowFinalSubmit: boolean): string {
   return JSON.stringify({
-    locale: snapshot.fillLocale || snapshot.documentLocale,
-    page: snapshot.pageTitle?.slice(0, 80),
+    page: snapshot.pageTitle?.slice(0, 100),
     url: snapshot.pageUrl,
     visibleFields: snapshot.visibleFillableFieldCount,
     unresolvedRequired: snapshot.unresolvedRequiredCount,
@@ -702,16 +674,6 @@ function buildNavigationPayload(snapshot: NavigationSnapshot, allowFinalSubmit: 
   });
 }
 
-function navigationSystemPrompt(): string {
-  return `You classify form navigation controls for QA automation.
-Return only minified JSON:
-{"isMultiStep":boolean,"shouldAdvanceAfterFill":boolean,"nextControlSid":"id-or-empty","isFinalSubmit":boolean,"confidence":number}
-Advance only when required fields on the current visible step are done.
-Pick the single best forward/next/continue control by label and structure in any language.
-Do not pick back/cancel/reset controls.
-Treat payment/order/final submit only when it is clearly the final submit page or allowFinalSubmit is true.`;
-}
-
 export async function callLlmForNavigation(
   snapshot: NavigationSnapshot,
   allowFinalSubmit: boolean,
@@ -721,51 +683,37 @@ export async function callLlmForNavigation(
   | { ok: true; decision: ReturnType<typeof parseNavigationDecision> }
   | { ok: false; error: string }
 > {
-  const key = normalizeApiKey(apiKeys[settings.provider] ?? "");
-  if (!key) {
-    return { ok: false, error: "No API key configured." };
-  }
+  const providerId = settings.provider;
+  const provider = PROVIDERS[providerId];
+  const apiKey = (apiKeys[providerId] ?? "").trim();
+  if (!apiKey) return { ok: false, error: "No API key saved for the selected provider." };
 
-  const base = settings.baseUrl.replace(/\/$/, "");
-  const url = `${base}/chat/completions`;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${key}`,
-  };
-  if (settings.provider === "openrouter") {
-    headers["HTTP-Referer"] = APP_URL;
-    headers["X-Title"] = APP_TITLE;
-  }
-
-  const body: Record<string, unknown> = {
-    model: settings.model,
-    temperature: 0,
-    top_p: 0.1,
-    max_tokens: 220,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: navigationSystemPrompt() },
-      { role: "user", content: buildNavigationPayload(snapshot, allowFinalSubmit) },
-    ],
-  };
-  if (settings.provider === "openrouter") body.include_reasoning = false;
+  const prepared = prepareRequest(
+    provider,
+    settings.baseUrl.trim() || provider.defaultBaseUrl,
+    apiKey,
+    {
+      systemPrompt: navigationSystemPrompt(settings),
+      userMessages: [buildNavigationPayload(snapshot, allowFinalSubmit)],
+      model: settings.model || provider.defaultModel,
+      maxTokens: 260,
+      temperature: 0,
+      jsonMode: true,
+    },
+  );
 
   try {
-    const res = await fetch(url, {
+    const res = await fetch(prepared.url, {
       method: "POST",
-      headers,
-      body: JSON.stringify(body),
+      headers: prepared.headers,
+      body: prepared.body,
     });
-    const text = await res.text();
-    if (!res.ok) {
-      return { ok: false, error: text.slice(0, 400) || `HTTP ${res.status}` };
-    }
-    const data = JSON.parse(text) as {
-      choices?: { message?: { content?: string | null } }[];
-    };
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) return { ok: false, error: "Empty navigation model response." };
-    return { ok: true, decision: parseNavigationDecision(content) };
+    const body = await res.text();
+    if (!res.ok) return { ok: false, error: readProviderError(body) };
+
+    const reply = readReply(provider, body);
+    if (!reply.content) return { ok: false, error: "Empty navigation response." };
+    return { ok: true, decision: parseNavigationDecision(reply.content) };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

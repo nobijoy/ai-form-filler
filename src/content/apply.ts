@@ -1,15 +1,13 @@
 import type { FieldDescriptor } from "../shared/types";
-import type { ApplyTarget } from "./scan";
-import { isApplyTargetFillable } from "./scan";
+import { isInstanceFillable, readInstanceValue } from "./scan";
+import { adapterForInstance, type WidgetInstance } from "./widgets";
+import { nextFrame } from "./widgets/dom";
 
 export interface ApplyFieldResult {
   sid: string;
   success: boolean;
-  applyFailed?: boolean;
-  usedClick?: boolean;
-  checkedBefore?: boolean;
-  checkedAfter?: boolean;
-  checkedAfterRaf?: boolean;
+  appliedValue?: string;
+  reason?: string;
 }
 
 export interface ApplyValuesResult {
@@ -18,261 +16,135 @@ export interface ApplyValuesResult {
   results: ApplyFieldResult[];
 }
 
-function dispatchInputEvents(el: HTMLElement): void {
-  el.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
-  el.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+export interface ApplyOptions {
+  settleMs?: number;
 }
 
-function isCheckboxTarget(target: ApplyTarget): boolean {
+function isToggleKind(descriptor: FieldDescriptor): boolean {
   return (
-    target.type === "single" &&
-    target.el instanceof HTMLInputElement &&
-    (target.el.type || "text").toLowerCase() === "checkbox"
+    descriptor.kind === "checkbox" ||
+    descriptor.kind === "aria-checkbox" ||
+    descriptor.kind === "aria-switch"
   );
 }
 
-function partitionValues(
-  values: Record<string, string>,
-  targets: Map<string, ApplyTarget>,
-): { checkboxes: Record<string, string>; others: Record<string, string> } {
-  const checkboxes: Record<string, string> = {};
-  const others: Record<string, string> = {};
-
-  for (const [sid, value] of Object.entries(values)) {
-    const target = targets.get(sid);
-    if (target && isCheckboxTarget(target)) checkboxes[sid] = value;
-    else others[sid] = value;
-  }
-
-  return { checkboxes, others };
-}
-
-async function applyCheckboxValue(
-  el: HTMLInputElement,
-  value: string,
+async function applyOne(
   sid: string,
+  value: string,
+  instance: WidgetInstance,
 ): Promise<ApplyFieldResult> {
-  const expected = value === "true";
-  const checkedBefore = el.checked;
-  let usedClick = false;
-
-  console.debug("[AI Form Filler] checkbox: attempting apply", {
-    sid,
-    returnedValue: value,
-    expected,
-    checkedBefore,
-    elementId: el.id || "(none)",
-    elementName: el.name || "(none)",
-  });
-
-  if (el.checked !== expected) {
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked")?.set;
-    if (setter) setter.call(el, expected);
-    else el.checked = expected;
-
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => resolve());
-    });
-
-    if (el.checked !== expected) {
-      usedClick = true;
-      el.click();
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-    }
+  if (!isInstanceFillable(instance)) {
+    return { sid, success: false, reason: "the control is hidden or disabled" };
   }
 
-  const checkedAfterRaf = await new Promise<boolean>((resolve) => {
-    requestAnimationFrame(() => resolve(el.checked));
-  });
-  const success = checkedAfterRaf === expected;
-
-  console.debug("[AI Form Filler] checkbox: after requestAnimationFrame", {
-    sid,
-    checkedBefore,
-    checkedAfterRaf,
-    expected,
-    usedClick,
-    success,
-  });
-
-  if (!success) {
-    console.debug("[AI Form Filler] checkbox: applyFailed", { sid, expected, checkedAfterRaf });
+  const adapter = adapterForInstance(instance);
+  if (!adapter) {
+    return { sid, success: false, reason: "no adapter handles this control" };
   }
 
-  return {
-    sid,
-    success,
-    applyFailed: !success,
-    usedClick,
-    checkedBefore,
-    checkedAfter: el.checked,
-    checkedAfterRaf,
-  };
+  try {
+    const report = await adapter.apply(instance, value);
+    return {
+      sid,
+      success: report.success,
+      appliedValue: report.appliedValue,
+      reason: report.reason,
+    };
+  } catch (error) {
+    return {
+      sid,
+      success: false,
+      reason: error instanceof Error ? error.message : "the control threw while being set",
+    };
+  }
 }
 
-async function applyValuesBatch(
-  targets: Map<string, ApplyTarget>,
+/**
+ * Writes a batch of values.
+ *
+ * Toggles go first: checking a box is what reveals the dependent field it
+ * controls, so the two must not be written in the same pass.
+ */
+export async function applyValuesToInstances(
+  instances: Map<string, WidgetInstance>,
   values: Record<string, string>,
+  options: ApplyOptions = {},
 ): Promise<ApplyValuesResult> {
   const applied: Record<string, string> = {};
   const failed: string[] = [];
   const results: ApplyFieldResult[] = [];
 
-  for (const [sid, value] of Object.entries(values)) {
-    const t = targets.get(sid);
+  const toggles: string[] = [];
+  const rest: string[] = [];
 
-    if (!t) {
-      console.debug("[AI Form Filler] apply: no DOM target for sid", { sid, value });
+  for (const sid of Object.keys(values)) {
+    const instance = instances.get(sid);
+    if (!instance) {
       failed.push(sid);
-      results.push({ sid, success: false, applyFailed: true });
+      results.push({ sid, success: false, reason: "the field is no longer in the page" });
       continue;
     }
+    if (isToggleKind(instance.descriptor)) toggles.push(sid);
+    else rest.push(sid);
+  }
 
-    if (!isApplyTargetFillable(t)) {
-      console.debug("[AI Form Filler] apply: skipping non-fillable target", { sid, value });
-      failed.push(sid);
-      results.push({ sid, success: false, applyFailed: true });
-      continue;
-    }
+  const runBatch = async (sids: string[]): Promise<void> => {
+    for (const sid of sids) {
+      const instance = instances.get(sid);
+      if (!instance) continue;
 
-    if (t.type === "radio") {
-      const match = t.inputs.find(
-        (i) => i.value === value && isApplyTargetFillable({ type: "single", el: i }),
-      );
-      if (match && !match.disabled) {
-        match.checked = true;
-        dispatchInputEvents(match);
-        match.dispatchEvent(new Event("click", { bubbles: true }));
-        applied[sid] = value;
-        results.push({ sid, success: true });
-      } else {
-        failed.push(sid);
-        results.push({ sid, success: false, applyFailed: true });
-      }
-      continue;
-    }
-
-    const el = t.el;
-
-    if (el instanceof HTMLInputElement) {
-      const type = (el.type || "text").toLowerCase();
-
-      if (type === "checkbox") {
-        const checkboxResult = await applyCheckboxValue(el, value, sid);
-        results.push(checkboxResult);
-        if (checkboxResult.success) applied[sid] = value;
-        else failed.push(sid);
-        continue;
+      // A dependent field is meaningless until its controller is selected.
+      const controller = instance.descriptor.controllingCheckboxSid;
+      if (controller) {
+        const controllerValue = applied[controller] ?? values[controller];
+        if (controllerValue !== "true") continue;
       }
 
-      el.value = value;
-      dispatchInputEvents(el);
-      el.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
-      applied[sid] = value;
-      results.push({ sid, success: true });
-      continue;
+      const result = await applyOne(sid, values[sid], instance);
+      results.push(result);
+      if (result.success) applied[sid] = result.appliedValue ?? values[sid];
+      else failed.push(sid);
     }
+  };
 
-    if (el instanceof HTMLTextAreaElement) {
-      el.value = value;
-      dispatchInputEvents(el);
-      el.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
-      applied[sid] = value;
-      results.push({ sid, success: true });
-      continue;
-    }
+  await runBatch(toggles);
 
-    if (el instanceof HTMLSelectElement) {
-      el.value = value;
-      dispatchInputEvents(el);
-      applied[sid] = value;
-      results.push({ sid, success: true });
+  if (toggles.length > 0 && rest.length > 0) {
+    await nextFrame();
+    if (options.settleMs && options.settleMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, options.settleMs));
     }
   }
+
+  await runBatch(rest);
 
   return { applied, failed, results };
 }
 
-function mergeApplyResults(base: ApplyValuesResult, next: ApplyValuesResult): ApplyValuesResult {
-  return {
-    applied: { ...base.applied, ...next.applied },
-    failed: [...new Set([...base.failed, ...next.failed])],
-    results: [...base.results, ...next.results],
-  };
-}
-
-function filterDependentTextValues(
-  values: Record<string, string>,
-  fieldMap: Map<string, FieldDescriptor>,
-  selectedCheckboxes: Record<string, string>,
-): Record<string, string> {
-  const filtered: Record<string, string> = {};
-
-  for (const [sid, value] of Object.entries(values)) {
-    const field = fieldMap.get(sid);
-    const controllerSid = field?.controllingCheckboxSid;
-    if (controllerSid && selectedCheckboxes[controllerSid] !== "true") {
-      console.debug("[AI Form Filler] apply: skipping dependent text without selected checkbox", {
-        sid,
-        controllerSid,
-      });
-      continue;
-    }
-    filtered[sid] = value;
-  }
-
-  return filtered;
-}
-
-export async function applyValuesToTargets(
-  targets: Map<string, ApplyTarget>,
-  values: Record<string, string>,
-  options?: { settleMs?: number; fields?: FieldDescriptor[] },
-): Promise<ApplyValuesResult> {
-  const fieldMap = options?.fields
-    ? new Map(options.fields.map((field) => [field.syntheticId, field]))
-    : undefined;
-  const { checkboxes, others } = partitionValues(values, targets);
-  const selectedCheckboxes = { ...checkboxes };
-  const filteredOthers = fieldMap ? filterDependentTextValues(others, fieldMap, selectedCheckboxes) : others;
-
-  let result: ApplyValuesResult = { applied: {}, failed: [], results: [] };
-
-  if (Object.keys(checkboxes).length > 0) {
-    result = mergeApplyResults(result, await applyValuesBatch(targets, checkboxes));
-  }
-
-  if (Object.keys(filteredOthers).length > 0) {
-    if (Object.keys(checkboxes).length > 0 && options?.settleMs && options.settleMs > 0) {
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          setTimeout(resolve, options.settleMs);
-        });
-      });
-    }
-    result = mergeApplyResults(result, await applyValuesBatch(targets, filteredOthers));
-  }
-
-  return result;
-}
-
+/**
+ * Re-asserts values a re-render discarded.
+ *
+ * Must only ever be called with the current step's values: replaying an earlier
+ * step's map would write stale data into DOM nodes the framework has reused.
+ */
 export async function reconcileAppliedValues(
-  targets: Map<string, ApplyTarget>,
+  instances: Map<string, WidgetInstance>,
   appliedValues: Record<string, string>,
-  options?: { settleMs?: number; fields?: FieldDescriptor[] },
+  options: ApplyOptions = {},
 ): Promise<ApplyValuesResult> {
-  if (Object.keys(appliedValues).length === 0) {
+  const drifted: Record<string, string> = {};
+
+  for (const [sid, value] of Object.entries(appliedValues)) {
+    const instance = instances.get(sid);
+    if (!instance) continue;
+    if (!isInstanceFillable(instance)) continue;
+    if (readInstanceValue(instance) === value) continue;
+    drifted[sid] = value;
+  }
+
+  if (Object.keys(drifted).length === 0) {
     return { applied: {}, failed: [], results: [] };
   }
 
-  console.debug("[AI Form Filler] reconcile appliedValues", {
-    count: Object.keys(appliedValues).length,
-    sids: Object.keys(appliedValues),
-  });
-
-  return applyValuesToTargets(targets, appliedValues, options);
+  return applyValuesToInstances(instances, drifted, options);
 }

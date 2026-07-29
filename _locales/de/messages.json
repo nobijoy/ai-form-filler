@@ -1,55 +1,179 @@
 {
-  "extName": { "message": "KI-Formularausfüller" },
+  "extName": {
+    "message": "AI Form Filler",
+    "description": "Extension name"
+  },
   "extDescription": {
-    "message": "Kontextbewusstes Ausfüllen mit lokalen Heuristiken und optionaler KI (eigener API-Schlüssel)."
+    "message": "Füllt reaktive und mehrstufige Webformulare mit realistischen KI-Testdaten (eigener API-Schlüssel).",
+    "description": "Extension description"
   },
-  "actionTitle": { "message": "KI-Formularausfüller" },
-  "commandFill": { "message": "Sichtbares Formular ausfüllen" },
-  "popupTitle": { "message": "KI-Formularausfüller" },
-  "labelApiKey": { "message": "API-Schlüssel" },
-  "labelRememberKey": { "message": "Schlüssel über Browser-Neustarts speichern" },
-  "labelBaseUrl": { "message": "API-Basis-URL" },
-  "labelModel": { "message": "Modell" },
-  "modelHintLoading": { "message": "Lade kostenlose OpenRouter-Modelle..." },
-  "modelHintLoaded": {
-    "message": "Modell aus der Liste waehlen. Kostenlose Modelle nach groesster Kontextlaenge sortiert."
+  "actionTitle": {
+    "message": "AI Form Filler",
+    "description": "Toolbar button tooltip"
   },
-  "modelHintFallback": {
-    "message": "Fallback-Modellliste aktiv. Netzwerk/API-Zugriff pruefen."
+  "commandFill": {
+    "message": "Formular auf dieser Seite ausfüllen",
+    "description": "Keyboard command"
   },
-  "labelFillMode": { "message": "Ausfüllmodus" },
-  "modeHybrid": { "message": "Hybrid (Heuristik + KI)" },
-  "modeAiOnly": { "message": "Nur KI" },
-  "modeHeuristicsOnly": { "message": "Nur Heuristik" },
-  "hintPersona": {
-    "message": "Optionale Test-Identitaet fuer konsistente Daten (Heuristik + KI). Sprache folgt der Seite automatisch."
+  "panelTitle": {
+    "message": "AI Form Filler",
+    "description": "Side panel heading"
   },
-  "labelPersonaEmail": { "message": "E-Mail" },
-  "labelPersonaFirstName": { "message": "Vorname" },
-  "labelPersonaLastName": { "message": "Nachname" },
-  "labelPersonaPhone": { "message": "Telefon" },
-  "labelPersonaAdvanced": { "message": "Weitere Felder (JSON)" },
-  "hintPersonaAdvanced": {
-    "message": "Optional. Zusaetzliche Schluessel fuer Heuristik (z. B. url, street, city, zip, country, fullName). Wird mit den Feldern oben zusammengefuehrt."
+
+  "labelCustomRequest": {
+    "message": "Eigene Anweisung (optional)",
+    "description": "Free-text instruction field"
   },
-  "placeholderPersonaAdvanced": {
-    "message": "{\n  \"country\": \"DE\",\n  \"fullName\": \"Alex Tester\"\n}"
+  "hintCustomRequest": {
+    "message": "Leer lassen für das normale Ausfüllen. Nur nutzen, wenn Sie etwas Bestimmtes brauchen, zum Beispiel „Telefon als 090-XXXX-XXXX“ oder „Namen auf Japanisch“.",
+    "description": "Help text under the custom request box"
   },
-  "labelMaxRounds": { "message": "Max. Durchläufe" },
-  "labelSettleMs": { "message": "Wartezeit (ms)" },
+  "placeholderCustomRequest": {
+    "message": "z. B. Namen auf Japanisch, Telefon als 090-XXXX-XXXX",
+    "description": "Placeholder for the custom request box"
+  },
+  "btnFill": {
+    "message": "Diese Seite ausfüllen",
+    "description": "Primary run button"
+  },
+
+  "labelProgress": {
+    "message": "Fortschritt",
+    "description": "Progress log section title"
+  },
+  "btnClearLog": {
+    "message": "Leeren",
+    "description": "Clears the progress log"
+  },
+  "logEmpty": {
+    "message": "Noch keine Aktivität.",
+    "description": "Empty progress log placeholder"
+  },
+
+  "labelConnection": {
+    "message": "Verbindung",
+    "description": "Provider settings section"
+  },
+  "labelProvider": {
+    "message": "Anbieter",
+    "description": "LLM provider selector"
+  },
+  "labelApiKey": {
+    "message": "API-Schlüssel",
+    "description": "API key field"
+  },
+  "btnTestKey": {
+    "message": "Testen",
+    "description": "Validates the saved key"
+  },
+  "labelRememberKey": {
+    "message": "Schlüssel über Browser-Neustarts hinweg behalten",
+    "description": "Key persistence toggle"
+  },
+  "labelEncryptKeys": {
+    "message": "Gespeicherte Schlüssel mit Passphrase verschlüsseln",
+    "description": "Enables encryption at rest"
+  },
+  "btnUnlock": {
+    "message": "Entsperren",
+    "description": "Unlocks the encrypted key vault"
+  },
+  "labelModel": {
+    "message": "Modell",
+    "description": "Model selector"
+  },
+  "labelBaseUrl": {
+    "message": "API-Basis-URL",
+    "description": "Provider endpoint override"
+  },
+  "labelFallback": {
+    "message": "Ersatzanbieter (optional)",
+    "description": "Providers to try if the main one fails"
+  },
+  "hintFallback": {
+    "message": "Wird nur genutzt, wenn der gewählte Anbieter ausfällt. Formularinhalte gehen an jeden hier ausgewählten Anbieter.",
+    "description": "Privacy note for fallback providers"
+  },
+
+  "labelBehavior": {
+    "message": "Verhalten",
+    "description": "Orchestration settings section"
+  },
+  "labelFillMode": {
+    "message": "Füllmodus",
+    "description": "Hybrid, AI only, or heuristics only"
+  },
+  "modeHybrid": {
+    "message": "Hybrid (Heuristik + KI)",
+    "description": "Fill mode option"
+  },
+  "modeAiOnly": {
+    "message": "Nur KI",
+    "description": "Fill mode option"
+  },
+  "modeHeuristicsOnly": {
+    "message": "Nur Heuristik (kein Schlüssel nötig)",
+    "description": "Fill mode option"
+  },
+  "labelLanguage": {
+    "message": "Sprache der Werte",
+    "description": "Output language policy"
+  },
+  "langAuto": {
+    "message": "Der Seite folgen",
+    "description": "Language policy option"
+  },
+  "langOverride": {
+    "message": "Immer diese Sprache...",
+    "description": "Language policy option"
+  },
+  "hintLanguage": {
+    "message": "Ein Feld mit eigenem lang-Attribut hat immer Vorrang vor dieser Einstellung.",
+    "description": "Language help text"
+  },
   "labelAutoNextEnabled": {
-    "message": "Naechste Seite automatisch, wenn aktueller Schritt fertig ist"
+    "message": "Mehrstufige Formulare automatisch durchlaufen",
+    "description": "Auto-next toggle"
   },
-  "labelAutoNextMaxSteps": { "message": "Max. automatische Weiterklicks" },
-  "labelFillEmptyOnly": { "message": "Nur leere Felder" },
-  "btnSave": { "message": "Einstellungen speichern" },
-  "btnClearKey": { "message": "API-Schlüssel löschen" },
-  "btnFill": { "message": "Diesen Tab ausfüllen" },
-  "statusIdle": { "message": "Bereit." },
-  "statusNoTab": { "message": "Kein aktiver Tab." },
-  "statusSent": { "message": "Ausfüllen gestartet." },
-  "errGeneric": { "message": "Etwas ist schiefgelaufen." },
+  "labelAutoNextMaxSteps": {
+    "message": "Maximale Schritte",
+    "description": "Safety cap on wizard traversal"
+  },
+  "labelMaxRounds": {
+    "message": "Maximale Runden pro Schritt",
+    "description": "Retry loop cap within a step"
+  },
+  "labelSettleMs": {
+    "message": "Wartezeit nach Eingabe (ms)",
+    "description": "Extra wait after writing values"
+  },
+  "labelFillEmptyOnly": {
+    "message": "Nur leere Felder ausfüllen",
+    "description": "Skip fields that already have a value"
+  },
+
+  "btnSave": {
+    "message": "Einstellungen speichern",
+    "description": "Persists settings and any entered key"
+  },
+  "btnClearKey": {
+    "message": "Schlüssel löschen",
+    "description": "Removes the stored key for the selected provider"
+  },
+  "statusIdle": {
+    "message": "Bereit.",
+    "description": "Idle status"
+  },
+  "statusNoTab": {
+    "message": "Kein aktiver Tab.",
+    "description": "Error status"
+  },
   "keyHint": {
-    "message": "Schlüssel bleiben in der Extension (lokal oder Sitzung). Niemals an Webseiten gesendet. Gerät sperren—wer das Profil nutzt, kann gespeicherte Schlüssel verwenden."
+    "message": "Schlüssel liegen im Speicher der Erweiterung und werden nur vom Hintergrundprozess gelesen. Webseiten sehen sie nie. Wer Zugriff auf dieses Browser-Profil hat, kann einen gespeicherten Schlüssel nutzen.",
+    "description": "Security note"
+  },
+  "errGeneric": {
+    "message": "Etwas ist schiefgelaufen.",
+    "description": "Generic error"
   }
 }

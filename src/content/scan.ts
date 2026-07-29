@@ -1,26 +1,50 @@
-import type { FieldDescriptor, FieldOption } from "../shared/types";
-import { isFillableField, NON_FILLABLE_INPUT_TYPES } from "../shared/fillable";
-
-const elementIds = new WeakMap<Element, string>();
-let idCounter = 0;
-
-function syntheticIdFor(el: Element): string {
-  let id = elementIds.get(el);
-  if (!id) {
-    id = `f_${++idCounter}`;
-    elementIds.set(el, id);
-  }
-  return id;
-}
-
-export type ApplyTarget =
-  | { type: "single"; el: HTMLElement }
-  | { type: "radio"; inputs: HTMLInputElement[] };
+import type { FieldDescriptor } from "../shared/types";
+import { isFillableField } from "../shared/fillable";
+import { FieldIdAllocator, type FieldIdentityParts } from "./fieldId";
+import { WIDGET_SELECTOR, adapterFor, adapterForInstance } from "./widgets";
+import type { CommonDescriptorParts, DescribeContext, WidgetInstance } from "./widgets/types";
+import { associatedLabelText, cleanText, resolveAriaLabel, textFromIds } from "./widgets/dom";
 
 export interface ScanResult {
   fields: FieldDescriptor[];
-  targets: Map<string, ApplyTarget>;
+  /** sid -> the live widget the applier drives. */
+  instances: Map<string, WidgetInstance>;
 }
+
+const GROUP_CONTAINER_SELECTOR =
+  "fieldset, [role='group'], [role='radiogroup'], [data-section], section";
+
+const REQUIRED_LABEL_PATTERN =
+  /(\*|obligatoire|requis|required|pflichtfeld|verplicht|必須|필수|obligatorio|必填)/i;
+
+// ---------------------------------------------------------------------------
+// Visibility
+// ---------------------------------------------------------------------------
+
+export function isVisible(el: HTMLElement): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+
+  let cur: HTMLElement | null = el;
+  while (cur) {
+    if (cur.hidden) return false;
+    if (cur.getAttribute("aria-hidden") === "true") return false;
+    const style = window.getComputedStyle(cur);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+    if (parseFloat(style.opacity) === 0) return false;
+    if (style.contentVisibility === "hidden") return false;
+    cur = cur.parentElement;
+  }
+
+  // A zero-size input is still fillable: custom controls routinely hide the
+  // native input behind a styled label.
+  const rect = el.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0 && el.tagName !== "INPUT") return false;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Shared descriptor parts
+// ---------------------------------------------------------------------------
 
 function resolveLang(el: Element): string | undefined {
   let cur: Element | null = el;
@@ -32,357 +56,264 @@ function resolveLang(el: Element): string | undefined {
   return undefined;
 }
 
-function textFromIds(ids: string): string {
-  const parts = ids.split(/\s+/).filter(Boolean);
-  const texts: string[] = [];
-  for (const id of parts) {
-    const node = document.getElementById(id);
-    if (node) texts.push(node.textContent?.trim() || "");
+/**
+ * Nearest ancestor text that reads as context for this control. Walking the
+ * ancestor chain avoids the per-text-node layout reads a pixel-radius sweep
+ * needs, and lands on more relevant copy.
+ */
+function contextTextFor(el: HTMLElement): string | undefined {
+  let cur: HTMLElement | null = el.parentElement;
+  let depth = 0;
+  let best = "";
+
+  while (cur && depth < 4) {
+    if (cur.tagName === "FORM" || cur.tagName === "BODY") break;
+    const text = cleanText(cur.textContent);
+    if (text.length > best.length) best = text;
+    if (best.length >= 240) break;
+    cur = cur.parentElement;
+    depth += 1;
   }
-  return texts.filter(Boolean).join(" ");
+
+  const trimmed = best.slice(0, 400);
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function associatedLabelText(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): string {
-  if (input.id) {
-    const lab = input.ownerDocument.querySelector(`label[for="${CSS.escape(input.id)}"]`);
-    if (lab) return lab.textContent?.trim() || "";
-  }
-  const parent = input.closest("label");
-  if (parent) {
-    const clone = parent.cloneNode(true) as HTMLElement;
-    const nested = clone.querySelector("input,textarea,select");
-    nested?.remove();
-    return clone.textContent?.trim() || "";
-  }
-  return "";
+function precedingHeadings(): { el: HTMLElement; text: string }[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>("h1, h2, h3, h4, legend, [role='heading']"),
+  )
+    .map((heading) => ({ el: heading, text: cleanText(heading.textContent) }))
+    .filter((entry) => entry.text.length > 0);
 }
 
-function isFieldRequired(
-  el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
-): boolean {
-  if (el.required) return true;
+function nearestPrecedingHeading(
+  el: Element,
+  headings: { el: HTMLElement; text: string }[],
+): string | undefined {
+  let best: string | undefined;
+  for (const heading of headings) {
+    const position = heading.el.compareDocumentPosition(el);
+    if ((position & Node.DOCUMENT_POSITION_FOLLOWING) === 0) continue;
+    best = heading.text;
+  }
+  return best;
+}
+
+function groupLabelFor(container: Element): string {
+  const legendText = cleanText(container.querySelector("legend")?.textContent);
+  if (legendText) return legendText.slice(0, 120);
+
+  const aria = resolveAriaLabel(container);
+  if (aria) return aria.slice(0, 120);
+
+  const headingText = cleanText(
+    container.querySelector("h1, h2, h3, h4, [role='heading']")?.textContent,
+  );
+  if (headingText) return headingText.slice(0, 120);
+
+  return container.getAttribute("data-section")?.slice(0, 120) ?? "";
+}
+
+const REQUIRED_MARKER_SELECTOR =
+  "[aria-hidden='true'].required, .required-mark, .is-required, .asterisk";
+
+/**
+ * Required-ness the markup implies without using the `required` attribute:
+ * an aria flag, a marker class, or an asterisk in the visible label.
+ */
+function isRequiredByMarkup(el: Element, labelText: string): boolean {
   if (el.getAttribute("aria-required") === "true") return true;
   if (el.getAttribute("data-required") === "true") return true;
   if (el.classList.contains("required") || el.classList.contains("is-required")) return true;
-  const label = associatedLabelText(el);
-  if (label && /(?:\*|obligatoire|requis|required|pflichtfeld|verplicht)/i.test(label)) {
-    return true;
-  }
-  return false;
+  if (labelText && REQUIRED_LABEL_PATTERN.test(labelText)) return true;
+
+  const host = el.closest("label, .field, .form-group, .form-item");
+  return host?.querySelector(REQUIRED_MARKER_SELECTOR) != null;
 }
 
-function rectDistance(a: DOMRect, b: DOMRect): number {
-  const dx = Math.max(0, Math.max(a.left - b.right, b.left - a.right));
-  const dy = Math.max(0, Math.max(a.top - b.bottom, b.top - a.bottom));
-  return Math.hypot(dx, dy);
+/**
+ * Text the field explicitly points at as its own description.
+ *
+ * Read unconditionally, because `aria-describedby` is the standard place a form
+ * states a required format ("Format: 090-1234-5678"). Reading it only while the
+ * field was already invalid meant the model never saw the format until after it
+ * had guessed wrong.
+ */
+function resolveDescription(el: Element): string | undefined {
+  const ids = el.getAttribute("aria-describedby");
+  if (!ids) return undefined;
+  const text = textFromIds(ids).slice(0, 200);
+  return text || undefined;
 }
 
-function nearestFormPurpose(el: HTMLElement): string | undefined {
-  const form = el.closest("form");
-  if (form) {
-    const formAria = form.getAttribute("aria-label")?.trim();
-    if (formAria) return formAria;
-    const labelledBy = form.getAttribute("aria-labelledby");
-    if (labelledBy) {
-      const fromIds = textFromIds(labelledBy);
-      if (fromIds) return fromIds;
-    }
-    const formHeading = form.querySelector<HTMLElement>("h1, h2, legend");
-    if (formHeading?.textContent?.trim()) return formHeading.textContent.trim();
-  }
+function resolveValidationState(el: Element): { ariaInvalid: boolean; message?: string } {
+  const ariaInvalid = el.getAttribute("aria-invalid") === "true";
+  const messages: string[] = [];
 
-  const targetRect = el.getBoundingClientRect();
-  const headings = Array.from(document.querySelectorAll<HTMLElement>("h1, h2"));
-  let best: { text: string; d: number } | null = null;
-  for (const heading of headings) {
-    const text = heading.textContent?.trim();
-    if (!text) continue;
-    const d = rectDistance(targetRect, heading.getBoundingClientRect());
-    if (!best || d < best.d) best = { text, d };
-  }
-  return best?.text;
-}
-
-function surroundingTextWithin50px(el: HTMLElement): string | undefined {
-  const targetRect = el.getBoundingClientRect();
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  const collected: string[] = [];
-
-  while (walker.nextNode()) {
-    const textNode = walker.currentNode as Text;
-    const value = textNode.nodeValue?.replace(/\s+/g, " ").trim();
-    if (!value) continue;
-    const parentEl = textNode.parentElement;
-    if (!parentEl) continue;
-    if (parentEl === el || parentEl.contains(el) || el.contains(parentEl)) continue;
-    if (!isVisible(parentEl)) continue;
-    const d = rectDistance(targetRect, parentEl.getBoundingClientRect());
-    if (d <= 50) collected.push(value);
-    if (collected.length >= 8) break;
+  const errorMessageId = el.getAttribute("aria-errormessage");
+  if (errorMessageId) {
+    const text = textFromIds(errorMessageId);
+    if (text) messages.push(text);
   }
 
-  if (collected.length === 0) return undefined;
-  return Array.from(new Set(collected)).join(" ").slice(0, 500);
-}
-
-function isVisible(el: HTMLElement): boolean {
-  if (!(el instanceof HTMLElement)) return false;
-
-  let cur: HTMLElement | null = el;
-  while (cur) {
-    if (cur.hidden) return false;
-    if (cur.getAttribute("aria-hidden") === "true") return false;
-    const style = window.getComputedStyle(cur);
-    if (style.display === "none" || style.visibility === "hidden") return false;
-    if (parseFloat(style.opacity) === 0) return false;
-    cur = cur.parentElement;
+  // While invalid, the described-by target is usually the error itself.
+  if (ariaInvalid) {
+    const described = resolveDescription(el);
+    if (described) messages.push(described);
   }
 
-  const rect = el.getBoundingClientRect();
-  if (rect.width === 0 && rect.height === 0 && el.tagName !== "INPUT") {
-    return false;
-  }
-  return true;
-}
-
-function isControlDisabled(
-  el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
-): boolean {
-  if (el.hasAttribute("disabled")) return true;
-  if (el.getAttribute("aria-disabled") === "true") return true;
-  if ("readOnly" in el && (el as HTMLInputElement | HTMLTextAreaElement).readOnly) return true;
-  if (el.closest("[inert]")) return true;
-  return false;
-}
-
-function isNonFillableInputType(type: string): boolean {
-  return NON_FILLABLE_INPUT_TYPES.has(type);
-}
-
-function gatherOptions(sel: HTMLSelectElement): FieldOption[] {
-  return Array.from(sel.options).map((o) => ({
-    value: o.value,
-    label: (o.textContent || o.value).trim(),
-  }));
-}
-
-function gatherRadios(groupName: string): HTMLInputElement[] {
-  return Array.from(
-    document.querySelectorAll<HTMLInputElement>(`input[type="radio"][name="${CSS.escape(groupName)}"]`),
+  const container = el.closest(".field, .form-group, .form-item, label, li, td");
+  const alertText = cleanText(
+    container?.querySelector("[role='alert'], .error, .error-message, .invalid-feedback")
+      ?.textContent,
   );
+  if (alertText) messages.push(alertText);
+
+  if (
+    el instanceof HTMLInputElement ||
+    el instanceof HTMLTextAreaElement ||
+    el instanceof HTMLSelectElement
+  ) {
+    if (el.validationMessage) messages.push(el.validationMessage);
+  }
+
+  const message = Array.from(new Set(messages)).join(" ").slice(0, 200);
+  return { ariaInvalid, message: message || undefined };
 }
 
-const scannedRadioGroups = new Set<string>();
+// ---------------------------------------------------------------------------
+// Scan
+// ---------------------------------------------------------------------------
+
+function buildDescribeContext(): DescribeContext {
+  const allocator = new FieldIdAllocator();
+  const headings = precedingHeadings();
+  const groupIds = new WeakMap<Element, string>();
+  let groupCounter = 0;
+
+  const groupIdFor = (container: Element): string => {
+    let id = groupIds.get(container);
+    if (!id) {
+      id = `g${++groupCounter}`;
+      groupIds.set(container, id);
+    }
+    return id;
+  };
+
+  const formPurposeFor = (el: HTMLElement): string | undefined => {
+    const form = el.closest("form");
+    if (form) {
+      const formAria = resolveAriaLabel(form);
+      if (formAria) return formAria;
+      const headingText = cleanText(form.querySelector("h1, h2, legend")?.textContent);
+      if (headingText) return headingText;
+    }
+    return nearestPrecedingHeading(el, headings) ?? cleanText(document.title) ?? undefined;
+  };
+
+  const commonParts = (el: HTMLElement): CommonDescriptorParts => {
+    const ariaLabel = resolveAriaLabel(el);
+    const labelText = associatedLabelText(el) || ariaLabel || undefined;
+    const container = el.closest(GROUP_CONTAINER_SELECTOR);
+    const heading = nearestPrecedingHeading(el, headings);
+    const validation = resolveValidationState(el);
+
+    const groupLabel = container ? groupLabelFor(container) || heading : heading;
+    const groupKey = container
+      ? groupIdFor(container)
+      : heading
+        ? `h:${heading.slice(0, 60)}`
+        : undefined;
+
+    return {
+      labelText,
+      ariaLabel,
+      formPurpose: formPurposeFor(el),
+      surroundingText: contextTextFor(el),
+      describedByText: resolveDescription(el),
+      fieldLocale: resolveLang(el),
+      groupKey,
+      groupLabel: groupLabel || undefined,
+      ariaInvalid: validation.ariaInvalid,
+      validationMessage: validation.message,
+      required: isRequiredByMarkup(el, labelText ?? ""),
+    };
+  };
+
+  return {
+    allocateSid: (el: Element, parts: FieldIdentityParts) => allocator.allocate(el, parts),
+    isVisible,
+    commonParts,
+  };
+}
 
 export function scanFormFields(): ScanResult {
+  const ctx = buildDescribeContext();
   const fields: FieldDescriptor[] = [];
-  const targets = new Map<string, ApplyTarget>();
-  scannedRadioGroups.clear();
+  const instances = new Map<string, WidgetInstance>();
+  const consumed = new WeakSet<Element>();
 
-  const selectors = [
-    'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"])',
-    "textarea",
-    "select",
-  ].join(",");
+  for (const el of Array.from(document.querySelectorAll<HTMLElement>(WIDGET_SELECTOR))) {
+    if (consumed.has(el)) continue;
 
-  const nodes = Array.from(document.querySelectorAll<HTMLElement>(selectors));
+    const adapter = adapterFor(el);
+    if (!adapter) continue;
 
-  for (const el of nodes) {
-    if (el.tagName === "INPUT") {
-      const input = el as HTMLInputElement;
-      const t = (input.type || "text").toLowerCase();
-      if (t === "radio") {
-        const name = input.name;
-        if (!name || scannedRadioGroups.has(name)) continue;
-        scannedRadioGroups.add(name);
-        const radios = gatherRadios(name);
-        const choices: FieldOption[] = radios
-          .filter((r) => isVisible(r) && !isControlDisabled(r))
-          .map((r) => ({
-            value: r.value,
-            label: associatedLabelText(r) || r.value || "option",
-          }));
-        const first = radios.find((r) => isVisible(r) && !isControlDisabled(r)) ?? radios[0];
-        if (!first) continue;
-        const sid = syntheticIdFor(first);
-        const checked = radios.find((r) => r.checked);
-        const descriptor: FieldDescriptor = {
-          syntheticId: sid,
-          tag: "input",
-          inputType: "radio",
-          name: name,
-          id: first.id || undefined,
-          required: isFieldRequired(first),
-          ariaLabel: first.getAttribute("aria-label") || undefined,
-          labelText: associatedLabelText(first) || first.getAttribute("aria-label") || undefined,
-          formPurpose: nearestFormPurpose(first),
-          surroundingText: surroundingTextWithin50px(first),
-          radioGroup: name,
-          radioChoices: choices,
-          currentValue: checked?.value ?? "",
-          disabled: radios.every((r) => isControlDisabled(r)),
-          visible: radios.some((r) => isVisible(r)),
-          fieldLocale: resolveLang(first),
-        };
-        if (!isFillableField(descriptor)) continue;
-        targets.set(sid, { type: "radio", inputs: radios });
-        fields.push(descriptor);
-        continue;
-      }
+    const instance = adapter.describe(el, ctx);
+    if (!instance) continue;
 
-      if (isNonFillableInputType(t)) {
-        continue;
-      }
+    // A group adapter owns several elements; none of them may be scanned again.
+    for (const owned of instance.elements) consumed.add(owned);
 
-      const ariaLabelledby = input.getAttribute("aria-labelledby");
-      let ariaLabel = input.getAttribute("aria-label") || undefined;
-      if (ariaLabelledby) {
-        const fromIds = textFromIds(ariaLabelledby);
-        if (fromIds) ariaLabel = fromIds;
-      }
+    if (!isFillableField(instance.descriptor)) continue;
 
-      const sid = syntheticIdFor(input);
-      const valueForDescriptor =
-        t === "checkbox" ? (input.checked ? "true" : "false") : input.value;
-      const descriptor: FieldDescriptor = {
-        syntheticId: sid,
-        tag: "input",
-        inputType: t,
-        name: input.name || undefined,
-        id: input.id || undefined,
-        placeholder: input.placeholder || undefined,
-        required: isFieldRequired(input),
-        pattern: input.pattern || undefined,
-        maxLength: input.maxLength > 0 ? input.maxLength : undefined,
-        autoComplete: input.autocomplete || undefined,
-        ariaLabel,
-        labelText: associatedLabelText(input) || ariaLabel || undefined,
-        formPurpose: nearestFormPurpose(input),
-        surroundingText: surroundingTextWithin50px(input),
-        currentValue: valueForDescriptor,
-        disabled: isControlDisabled(input),
-        visible: isVisible(input),
-        fieldLocale: resolveLang(input),
-      };
-      if (!isFillableField(descriptor)) continue;
-      targets.set(sid, { type: "single", el: input });
-      fields.push(descriptor);
-      continue;
-    }
-
-    if (el.tagName === "TEXTAREA") {
-      const ta = el as HTMLTextAreaElement;
-      const ariaLabelledby = ta.getAttribute("aria-labelledby");
-      let ariaLabel = ta.getAttribute("aria-label") || undefined;
-      if (ariaLabelledby) {
-        const fromIds = textFromIds(ariaLabelledby);
-        if (fromIds) ariaLabel = fromIds;
-      }
-      const sid = syntheticIdFor(ta);
-      const descriptor: FieldDescriptor = {
-        syntheticId: sid,
-        tag: "textarea",
-        name: ta.name || undefined,
-        id: ta.id || undefined,
-        placeholder: ta.placeholder || undefined,
-        required: isFieldRequired(ta),
-        maxLength: ta.maxLength > 0 ? ta.maxLength : undefined,
-        autoComplete: ta.autocomplete || undefined,
-        ariaLabel,
-        labelText: associatedLabelText(ta) || ariaLabel || undefined,
-        formPurpose: nearestFormPurpose(ta),
-        surroundingText: surroundingTextWithin50px(ta),
-        currentValue: ta.value,
-        disabled: isControlDisabled(ta),
-        visible: isVisible(ta),
-        fieldLocale: resolveLang(ta),
-      };
-      if (!isFillableField(descriptor)) continue;
-      targets.set(sid, { type: "single", el: ta });
-      fields.push(descriptor);
-      continue;
-    }
-
-    if (el.tagName === "SELECT") {
-      const sel = el as HTMLSelectElement;
-      const ariaLabelledby = sel.getAttribute("aria-labelledby");
-      let ariaLabel = sel.getAttribute("aria-label") || undefined;
-      if (ariaLabelledby) {
-        const fromIds = textFromIds(ariaLabelledby);
-        if (fromIds) ariaLabel = fromIds;
-      }
-      const sid = syntheticIdFor(sel);
-      const descriptor: FieldDescriptor = {
-        syntheticId: sid,
-        tag: "select",
-        name: sel.name || undefined,
-        id: sel.id || undefined,
-        required: isFieldRequired(sel),
-        autoComplete: sel.autocomplete || undefined,
-        ariaLabel,
-        labelText: associatedLabelText(sel) || ariaLabel || undefined,
-        formPurpose: nearestFormPurpose(sel),
-        surroundingText: surroundingTextWithin50px(sel),
-        options: gatherOptions(sel),
-        currentValue: sel.value,
-        disabled: isControlDisabled(sel),
-        visible: isVisible(sel),
-        fieldLocale: resolveLang(sel),
-      };
-      if (!isFillableField(descriptor)) continue;
-      targets.set(sid, { type: "single", el: sel });
-      fields.push(descriptor);
-    }
+    instances.set(instance.descriptor.syntheticId, instance);
+    fields.push(instance.descriptor);
   }
 
-  attachCheckboxDependentLinks(fields, targets);
+  attachCheckboxDependentLinks(fields, instances);
 
-  return { fields, targets };
+  return { fields, instances };
 }
+
+// ---------------------------------------------------------------------------
+// Dependent text fields ("Other: ___" beside a checkbox)
+// ---------------------------------------------------------------------------
 
 const DEPENDENT_TEXT_HINTS =
-  /その他|補足|詳細|理由|備考|試用期間|other|additional|detail|supplement|remarks|notes|specify/i;
-const LINK_CONTAINER_SELECTORS = ["label", '[role="group"]', "fieldset", "li", "tr", "div", "section"];
-
-function elementForSid(targets: Map<string, ApplyTarget>, sid: string): HTMLElement | null {
-  const target = targets.get(sid);
-  return target?.type === "single" ? target.el : null;
-}
+  /その他|補足|詳細|理由|備考|other|additional|detail|supplement|remarks|notes|specify|please describe/i;
+const LINK_CONTAINER_SELECTORS = ["label", "[role='group']", "fieldset", "li", "tr"];
 
 function attachCheckboxDependentLinks(
   fields: FieldDescriptor[],
-  targets: Map<string, ApplyTarget>,
+  instances: Map<string, WidgetInstance>,
 ): void {
-  const checkboxFields = fields.filter((field) => field.inputType === "checkbox");
+  const checkboxFields = fields.filter(
+    (field) => field.kind === "checkbox" || field.kind === "aria-checkbox",
+  );
+  if (checkboxFields.length === 0) return;
+
   const textFields = fields.filter(
     (field) =>
-      field.tag === "textarea" ||
-      (field.tag === "input" &&
-        field.inputType !== "checkbox" &&
-        field.inputType !== "radio" &&
-        (!field.inputType || field.inputType === "text")),
+      field.kind === "textarea" ||
+      field.kind === "contenteditable" ||
+      (field.kind === "text" && (field.inputType === "text" || field.inputType === undefined)),
   );
 
   for (const textField of textFields) {
-    const textEl = elementForSid(targets, textField.syntheticId);
+    const textEl = instances.get(textField.syntheticId)?.elements[0];
     if (!textEl) continue;
 
-    const hintBlob = [
-      textField.labelText,
-      textField.placeholder,
-      textField.ariaLabel,
-      textField.surroundingText,
-      textField.formPurpose,
-    ]
+    const hintBlob = [textField.labelText, textField.placeholder, textField.ariaLabel]
       .filter(Boolean)
       .join(" ");
 
     let best: { sid: string; score: number } | null = null;
-    const textRect = textEl.getBoundingClientRect();
 
     for (const checkboxField of checkboxFields) {
-      const checkboxEl = elementForSid(targets, checkboxField.syntheticId);
-      if (!(checkboxEl instanceof HTMLInputElement)) continue;
+      const checkboxEl = instances.get(checkboxField.syntheticId)?.elements[0];
+      if (!checkboxEl) continue;
 
       let score = 0;
 
@@ -400,12 +331,10 @@ function attachCheckboxDependentLinks(
       }
 
       if (checkboxEl.id) {
-        const label = checkboxEl.ownerDocument.querySelector(
+        const label: Element | null = document.querySelector(
           `label[for="${CSS.escape(checkboxEl.id)}"]`,
         );
-        if (label && (label.contains(textEl) || textEl.closest("label") === label)) {
-          score += 50;
-        }
+        if (label && (label.contains(textEl) || textEl.closest("label") === label)) score += 50;
       }
 
       const checkboxBlob = [checkboxField.labelText, checkboxField.ariaLabel]
@@ -415,43 +344,32 @@ function attachCheckboxDependentLinks(
         score += 20;
       }
 
-      const distance = rectDistance(textRect, checkboxEl.getBoundingClientRect());
-      if (distance <= 50) score += Math.max(0, 50 - distance);
-
       if (!best || score > best.score) best = { sid: checkboxField.syntheticId, score };
     }
 
-    if (best && best.score >= 30) {
-      textField.controllingCheckboxSid = best.sid;
-      console.debug("[AI Form Filler] linked dependent text field", {
-        textSid: textField.syntheticId,
-        controllingCheckboxSid: best.sid,
-        score: best.score,
-      });
-    }
+    if (best && best.score >= 50) textField.controllingCheckboxSid = best.sid;
   }
 }
 
-export function isApplyTargetFillable(target: ApplyTarget): boolean {
-  if (target.type === "radio") {
-    return target.inputs.some((input) => isVisible(input) && !isControlDisabled(input));
-  }
+// ---------------------------------------------------------------------------
+// Instance helpers
+// ---------------------------------------------------------------------------
 
-  const el = target.el;
-  if (
-    !(el instanceof HTMLInputElement) &&
-    !(el instanceof HTMLTextAreaElement) &&
-    !(el instanceof HTMLSelectElement)
-  ) {
-    return false;
-  }
-
-  if (el instanceof HTMLInputElement && isNonFillableInputType((el.type || "text").toLowerCase())) {
-    return false;
-  }
-
-  return isVisible(el) && !isControlDisabled(el);
+export function isInstanceFillable(instance: WidgetInstance): boolean {
+  const usable = instance.elements.filter((el) => isVisible(el));
+  if (usable.length === 0) return false;
+  return !instance.descriptor.disabled;
 }
+
+/** Current DOM value in the same encoding the descriptor reports. */
+export function readInstanceValue(instance: WidgetInstance): string {
+  const adapter = adapterForInstance(instance);
+  return adapter ? adapter.read(instance) : instance.descriptor.currentValue;
+}
+
+// ---------------------------------------------------------------------------
+// Locale
+// ---------------------------------------------------------------------------
 
 export function resolveDocumentLocale(): string {
   const htmlLang = document.documentElement.lang?.trim();

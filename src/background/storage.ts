@@ -1,20 +1,27 @@
-import { DEFAULT_SETTINGS, type ExtensionSettings, type LlmProviderId } from "../shared/types";
+import { PROVIDER_IDS, isProviderId } from "../shared/providers";
+import {
+  DEFAULT_SETTINGS,
+  MAX_FORM_STEPS,
+  type ExtensionSettings,
+  type LlmProviderId,
+} from "../shared/types";
+import { decryptSecret, encryptSecret, isEncryptedBlob } from "./keyVault";
 
 const SETTINGS_KEY = "aff_settings";
-/** Persists when “remember across restarts” is enabled */
-const API_KEY_LOCAL = "aff_apiKey";
+/** Keys that survive a browser restart. */
+const KEYS_PERSISTENT = "aff_apiKeysByProvider";
 /**
- * When remember is off: key is stored here so extension reload / dev rebuild does not wipe it
- * (chrome.storage.session is cleared on every extension update/reload). Cleared on browser start.
+ * Keys for this browser session only. Stored in `local` rather than `session`
+ * because `chrome.storage.session` is wiped on every extension reload, which
+ * would discard the key on each dev rebuild. Cleared explicitly on browser start.
  */
-const API_KEY_EPHEMERAL = "aff_apiKeyEphemeral";
-const API_KEYS_BY_PROVIDER_LOCAL = "aff_apiKeysByProvider";
-const API_KEYS_BY_PROVIDER_EPHEMERAL = "aff_apiKeysByProviderEphemeral";
+const KEYS_EPHEMERAL = "aff_apiKeysByProviderEphemeral";
 
-/** Called from background onStartup — clears session-mode keys when the browser restarts */
-export async function clearEphemeralBrowserSessionKey(): Promise<void> {
-  await chrome.storage.local.remove([API_KEY_EPHEMERAL, API_KEYS_BY_PROVIDER_EPHEMERAL]);
-}
+/** Legacy single-key entries, migrated on first read. */
+const LEGACY_KEYS = ["aff_apiKey", "aff_apiKeyEphemeral"] as const;
+
+type StoredSecret = string | { v: 1; iv: string; ct: string };
+type SecretMap = Partial<Record<LlmProviderId, StoredSecret>>;
 
 export function normalizeApiKey(key: string): string {
   return key
@@ -23,195 +30,208 @@ export function normalizeApiKey(key: string): string {
     .trim();
 }
 
+/** Called from `onStartup`: drops keys the user asked not to persist. */
+export async function clearEphemeralBrowserSessionKey(): Promise<void> {
+  await chrome.storage.local.remove([KEYS_EPHEMERAL, ...LEGACY_KEYS]);
+}
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+function clamp(value: number, min: number, max: number, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+function sanitizeSettings(stored: Partial<ExtensionSettings> | undefined): ExtensionSettings {
+  const merged = { ...DEFAULT_SETTINGS, ...stored };
+
+  const provider = isProviderId(merged.provider) ? merged.provider : DEFAULT_SETTINGS.provider;
+
+  const fallbackProviders = Array.isArray(merged.fallbackProviders)
+    ? merged.fallbackProviders.filter(
+        (id, index, all) => isProviderId(id) && id !== provider && all.indexOf(id) === index,
+      )
+    : [];
+
+  return {
+    ...merged,
+    provider,
+    baseUrl: (merged.baseUrl ?? "").trim(),
+    model: (merged.model ?? "").trim(),
+    fillLanguage: merged.fillLanguage === "override" ? "override" : "auto",
+    fillLocaleOverride: (merged.fillLocaleOverride ?? "").trim().slice(0, 35),
+    customRequest: (merged.customRequest ?? "").slice(0, 2000),
+    maxRounds: clamp(merged.maxRounds, 1, 60, DEFAULT_SETTINGS.maxRounds),
+    settleMs: clamp(merged.settleMs, 0, 3000, DEFAULT_SETTINGS.settleMs),
+    autoNextEnabled: merged.autoNextEnabled !== false,
+    autoNextMaxSteps: clamp(
+      merged.autoNextMaxSteps,
+      1,
+      MAX_FORM_STEPS,
+      DEFAULT_SETTINGS.autoNextMaxSteps,
+    ),
+    fillEmptyOnly: merged.fillEmptyOnly !== false,
+    rememberKeyAcrossRestarts: merged.rememberKeyAcrossRestarts !== false,
+    fallbackProviders,
+    encryptKeys: merged.encryptKeys === true,
+  };
+}
+
 export async function getSettings(): Promise<ExtensionSettings> {
   const raw = await chrome.storage.local.get(SETTINGS_KEY);
-  const stored = raw[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined;
-  const merged = {
-    ...DEFAULT_SETTINGS,
-    ...stored,
-    fillLanguage: "auto" as const,
-    fillLocaleOverride: "",
-  };
-
-  if (merged.fillMode === "ai_only") {
-    merged.autoNextEnabled = true;
-    merged.autoNextMaxSteps = Math.max(merged.autoNextMaxSteps, 10);
-  } else if (merged.autoNextMaxSteps > 1) {
-    merged.autoNextEnabled = true;
-    merged.autoNextMaxSteps = Math.max(
-      merged.autoNextMaxSteps,
-      DEFAULT_SETTINGS.autoNextMaxSteps,
-    );
-  } else if (merged.autoNextEnabled) {
-    merged.autoNextMaxSteps = Math.max(
-      merged.autoNextMaxSteps,
-      DEFAULT_SETTINGS.autoNextMaxSteps,
-    );
-  }
-
-  return merged;
+  return sanitizeSettings(raw[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined);
 }
 
 export async function saveSettings(partial: Partial<ExtensionSettings>): Promise<void> {
-  const cur = await getSettings();
-  const prevRemember = cur.rememberKeyAcrossRestarts;
-  const next = { ...cur, ...partial };
+  const current = await getSettings();
+  const next = sanitizeSettings({ ...current, ...partial });
+
+  // Moving a key between persistent and session storage has to follow the toggle.
   const rememberChanged =
     partial.rememberKeyAcrossRestarts !== undefined &&
-    partial.rememberKeyAcrossRestarts !== prevRemember;
+    next.rememberKeyAcrossRestarts !== current.rememberKeyAcrossRestarts;
   const existingKey = rememberChanged ? await getApiKey(next.provider) : undefined;
-  await chrome.storage.local.set({
-    [SETTINGS_KEY]: next,
-  });
+
+  await chrome.storage.local.set({ [SETTINGS_KEY]: next });
+
   if (rememberChanged && existingKey) {
-    await saveApiKey(next.provider, existingKey, next.rememberKeyAcrossRestarts);
+    await saveApiKey(next.provider, existingKey, next.rememberKeyAcrossRestarts, next.encryptKeys);
   }
 }
 
-function providerIds(): LlmProviderId[] {
-  return ["openrouter", "groq", "google", "cerebras"];
-}
+// ---------------------------------------------------------------------------
+// API keys
+// ---------------------------------------------------------------------------
 
-function normalizeApiKeyMap(raw: unknown): Partial<Record<LlmProviderId, string>> {
+function readSecretMap(raw: unknown): SecretMap {
   if (!raw || typeof raw !== "object") return {};
-  const obj = raw as Record<string, unknown>;
-  const out: Partial<Record<LlmProviderId, string>> = {};
-  for (const provider of providerIds()) {
-    const value = obj[provider];
-    if (typeof value !== "string") continue;
-    const normalized = normalizeApiKey(value);
-    if (normalized) out[provider] = normalized;
+  const source = raw as Record<string, unknown>;
+  const out: SecretMap = {};
+
+  for (const provider of PROVIDER_IDS) {
+    const value = source[provider];
+    if (typeof value === "string") {
+      const normalized = normalizeApiKey(value);
+      if (normalized) out[provider] = normalized;
+    } else if (isEncryptedBlob(value)) {
+      out[provider] = value;
+    }
   }
   return out;
 }
 
-async function migrateLegacySingleKeyIfNeeded(): Promise<void> {
-  try {
-    const legacySession = await chrome.storage.session.get(API_KEY_LOCAL);
-    const legacyVal = legacySession[API_KEY_LOCAL];
-    if (typeof legacyVal === "string") {
-      const t = normalizeApiKey(legacyVal);
-      await chrome.storage.session.remove(API_KEY_LOCAL);
-      if (t.length > 0) {
-        const existing = await chrome.storage.local.get([API_KEY_LOCAL, API_KEY_EPHEMERAL]);
-        if (!existing[API_KEY_LOCAL] && !existing[API_KEY_EPHEMERAL]) {
-          await chrome.storage.local.set({ [API_KEY_EPHEMERAL]: t });
-        }
-      }
-    }
-  } catch {
-    /* chrome.storage.session unavailable */
-  }
+async function loadMaps(): Promise<{ persistent: SecretMap; ephemeral: SecretMap }> {
+  const bag = await chrome.storage.local.get([KEYS_PERSISTENT, KEYS_EPHEMERAL]);
+  return {
+    persistent: readSecretMap(bag[KEYS_PERSISTENT]),
+    ephemeral: readSecretMap(bag[KEYS_EPHEMERAL]),
+  };
+}
 
-  const bag = await chrome.storage.local.get([
-    API_KEY_LOCAL,
-    API_KEY_EPHEMERAL,
-    API_KEYS_BY_PROVIDER_LOCAL,
-    API_KEYS_BY_PROVIDER_EPHEMERAL,
-  ]);
-  const hasProviderMap =
-    (bag[API_KEYS_BY_PROVIDER_LOCAL] && typeof bag[API_KEYS_BY_PROVIDER_LOCAL] === "object") ||
-    (bag[API_KEYS_BY_PROVIDER_EPHEMERAL] && typeof bag[API_KEYS_BY_PROVIDER_EPHEMERAL] === "object");
-  if (hasProviderMap) return;
-
-  const persistent = bag[API_KEY_LOCAL];
-  if (typeof persistent === "string") {
-    const t = normalizeApiKey(persistent);
-    if (t.length > 0) {
-      await chrome.storage.local.set({ [API_KEYS_BY_PROVIDER_LOCAL]: { openrouter: t } });
-    }
-  }
-  const ephemeral = bag[API_KEY_EPHEMERAL];
-  if (typeof ephemeral === "string") {
-    const t = normalizeApiKey(ephemeral);
-    if (t.length > 0) {
-      await chrome.storage.local.set({ [API_KEYS_BY_PROVIDER_EPHEMERAL]: { openrouter: t } });
-    }
-  }
+async function resolveSecret(secret: StoredSecret | undefined): Promise<string | undefined> {
+  if (secret === undefined) return undefined;
+  if (typeof secret === "string") return secret;
+  const decrypted = await decryptSecret(secret);
+  return decrypted ?? undefined;
 }
 
 export async function getApiKey(provider: LlmProviderId): Promise<string | undefined> {
-  await migrateLegacySingleKeyIfNeeded();
-  const bag = await chrome.storage.local.get([
-    API_KEYS_BY_PROVIDER_LOCAL,
-    API_KEYS_BY_PROVIDER_EPHEMERAL,
-    API_KEY_LOCAL,
-    API_KEY_EPHEMERAL,
-  ]);
-  const localMap = normalizeApiKeyMap(bag[API_KEYS_BY_PROVIDER_LOCAL]);
-  const ephemeralMap = normalizeApiKeyMap(bag[API_KEYS_BY_PROVIDER_EPHEMERAL]);
-  if (localMap[provider]) return localMap[provider];
-  if (ephemeralMap[provider]) return ephemeralMap[provider];
+  const { persistent, ephemeral } = await loadMaps();
+  return (
+    (await resolveSecret(persistent[provider])) ?? (await resolveSecret(ephemeral[provider]))
+  );
+}
 
-  // Backward compatibility with pre-provider storage only for OpenRouter.
-  // Other providers must not reuse legacy single-key storage, otherwise we can
-  // accidentally send an OpenRouter key to Groq/Google/Cerebras and get 401.
-  if (provider !== "openrouter") return undefined;
+/** Whether a key exists, without decrypting it. Safe to answer while locked. */
+export async function hasApiKey(provider: LlmProviderId): Promise<boolean> {
+  const { persistent, ephemeral } = await loadMaps();
+  return persistent[provider] !== undefined || ephemeral[provider] !== undefined;
+}
 
-  const persistent = bag[API_KEY_LOCAL];
-  if (typeof persistent === "string") {
-    const t = normalizeApiKey(persistent);
-    if (t.length > 0) return t;
-  }
-  const ephemeral = bag[API_KEY_EPHEMERAL];
-  if (typeof ephemeral === "string") {
-    const t = normalizeApiKey(ephemeral);
-    if (t.length > 0) return t;
-  }
-  return undefined;
+export async function isKeyEncrypted(provider: LlmProviderId): Promise<boolean> {
+  const { persistent, ephemeral } = await loadMaps();
+  return isEncryptedBlob(persistent[provider]) || isEncryptedBlob(ephemeral[provider]);
 }
 
 export async function saveApiKey(
   provider: LlmProviderId,
   key: string,
   rememberAcrossRestarts: boolean,
+  encrypt = false,
 ): Promise<void> {
   const trimmed = normalizeApiKey(key);
   if (!trimmed) {
     await clearApiKey(provider);
     return;
   }
-  await migrateLegacySingleKeyIfNeeded();
-  const bag = await chrome.storage.local.get([
-    API_KEYS_BY_PROVIDER_LOCAL,
-    API_KEYS_BY_PROVIDER_EPHEMERAL,
-  ]);
-  const localMap = normalizeApiKeyMap(bag[API_KEYS_BY_PROVIDER_LOCAL]);
-  const ephemeralMap = normalizeApiKeyMap(bag[API_KEYS_BY_PROVIDER_EPHEMERAL]);
+
+  const secret: StoredSecret = encrypt ? await encryptSecret(trimmed) : trimmed;
+  const { persistent, ephemeral } = await loadMaps();
+
   if (rememberAcrossRestarts) {
-    delete ephemeralMap[provider];
-    localMap[provider] = trimmed;
+    delete ephemeral[provider];
+    persistent[provider] = secret;
   } else {
-    delete localMap[provider];
-    ephemeralMap[provider] = trimmed;
+    delete persistent[provider];
+    ephemeral[provider] = secret;
   }
+
   await chrome.storage.local.set({
-    [API_KEYS_BY_PROVIDER_LOCAL]: localMap,
-    [API_KEYS_BY_PROVIDER_EPHEMERAL]: ephemeralMap,
+    [KEYS_PERSISTENT]: persistent,
+    [KEYS_EPHEMERAL]: ephemeral,
   });
 }
 
 export async function clearApiKey(provider?: LlmProviderId): Promise<void> {
   if (!provider) {
-    await chrome.storage.local.remove([
-      API_KEY_LOCAL,
-      API_KEY_EPHEMERAL,
-      API_KEYS_BY_PROVIDER_LOCAL,
-      API_KEYS_BY_PROVIDER_EPHEMERAL,
-    ]);
+    await chrome.storage.local.remove([KEYS_PERSISTENT, KEYS_EPHEMERAL, ...LEGACY_KEYS]);
     return;
   }
-  await migrateLegacySingleKeyIfNeeded();
-  const bag = await chrome.storage.local.get([
-    API_KEYS_BY_PROVIDER_LOCAL,
-    API_KEYS_BY_PROVIDER_EPHEMERAL,
-  ]);
-  const localMap = normalizeApiKeyMap(bag[API_KEYS_BY_PROVIDER_LOCAL]);
-  const ephemeralMap = normalizeApiKeyMap(bag[API_KEYS_BY_PROVIDER_EPHEMERAL]);
-  delete localMap[provider];
-  delete ephemeralMap[provider];
+
+  const { persistent, ephemeral } = await loadMaps();
+  delete persistent[provider];
+  delete ephemeral[provider];
+
   await chrome.storage.local.set({
-    [API_KEYS_BY_PROVIDER_LOCAL]: localMap,
-    [API_KEYS_BY_PROVIDER_EPHEMERAL]: ephemeralMap,
+    [KEYS_PERSISTENT]: persistent,
+    [KEYS_EPHEMERAL]: ephemeral,
   });
+}
+
+/** Re-wraps every stored key when the user turns encryption on or off. */
+export async function reencryptStoredKeys(encrypt: boolean): Promise<void> {
+  const { persistent, ephemeral } = await loadMaps();
+
+  const convert = async (map: SecretMap): Promise<SecretMap> => {
+    const out: SecretMap = {};
+    for (const provider of PROVIDER_IDS) {
+      const secret = map[provider];
+      if (secret === undefined) continue;
+      const plaintext = await resolveSecret(secret);
+      // A key we cannot read (vault locked) is left exactly as it is.
+      if (plaintext === undefined) {
+        out[provider] = secret;
+        continue;
+      }
+      out[provider] = encrypt ? await encryptSecret(plaintext) : plaintext;
+    }
+    return out;
+  };
+
+  await chrome.storage.local.set({
+    [KEYS_PERSISTENT]: await convert(persistent),
+    [KEYS_EPHEMERAL]: await convert(ephemeral),
+  });
+}
+
+export async function getAllApiKeys(): Promise<Partial<Record<LlmProviderId, string>>> {
+  const out: Partial<Record<LlmProviderId, string>> = {};
+  for (const provider of PROVIDER_IDS) {
+    const key = await getApiKey(provider);
+    if (key) out[provider] = key;
+  }
+  return out;
 }

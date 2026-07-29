@@ -4,151 +4,176 @@
     "description": "Extension name"
   },
   "extDescription": {
-    "message": "Context-aware form filling with local heuristics and optional AI (BYOK).",
+    "message": "Fill reactive and multi-step web forms with realistic AI-generated test data (bring your own key).",
     "description": "Extension description"
   },
   "actionTitle": {
     "message": "AI Form Filler",
-    "description": "Browser action tooltip"
+    "description": "Toolbar button tooltip"
   },
   "commandFill": {
-    "message": "Fill visible form",
+    "message": "Fill the form on this page",
     "description": "Keyboard command"
   },
-  "popupTitle": {
+  "panelTitle": {
     "message": "AI Form Filler",
-    "description": "Popup heading"
+    "description": "Side panel heading"
   },
-  "labelApiKey": {
-    "message": "API key*",
-    "description": "Settings label"
+
+  "labelCustomRequest": {
+    "message": "Custom request (optional)",
+    "description": "Free-text instruction field"
+  },
+  "hintCustomRequest": {
+    "message": "Leave empty for normal filling. Use it only when you need something specific, for example \"phone as 090-XXXX-XXXX\" or \"user names in Japanese\".",
+    "description": "Help text under the custom request box"
+  },
+  "placeholderCustomRequest": {
+    "message": "e.g. names in Japanese, phone as 090-XXXX-XXXX",
+    "description": "Placeholder for the custom request box"
+  },
+  "btnFill": {
+    "message": "Fill this page",
+    "description": "Primary run button"
+  },
+
+  "labelProgress": {
+    "message": "Progress",
+    "description": "Progress log section title"
+  },
+  "btnClearLog": {
+    "message": "Clear",
+    "description": "Clears the progress log"
+  },
+  "logEmpty": {
+    "message": "No activity yet.",
+    "description": "Empty progress log placeholder"
+  },
+
+  "labelConnection": {
+    "message": "Connection",
+    "description": "Provider settings section"
   },
   "labelProvider": {
-    "message": "Provider*",
-    "description": "LLM provider"
+    "message": "Provider",
+    "description": "LLM provider selector"
+  },
+  "labelApiKey": {
+    "message": "API key",
+    "description": "API key field"
+  },
+  "btnTestKey": {
+    "message": "Test",
+    "description": "Validates the saved key"
   },
   "labelRememberKey": {
     "message": "Remember key across browser restarts",
-    "description": "Checkbox"
+    "description": "Key persistence toggle"
   },
-  "labelBaseUrl": {
-    "message": "API base URL*",
-    "description": "OpenRouter API base"
+  "labelEncryptKeys": {
+    "message": "Encrypt stored keys with a passphrase",
+    "description": "Enables encryption at rest"
+  },
+  "btnUnlock": {
+    "message": "Unlock",
+    "description": "Unlocks the encrypted key vault"
   },
   "labelModel": {
-    "message": "Model*",
-    "description": "Model id"
+    "message": "Model",
+    "description": "Model selector"
   },
-  "modelHintLoading": {
-    "message": "Loading free OpenRouter models...",
-    "description": "Model list loading hint"
+  "labelBaseUrl": {
+    "message": "API base URL",
+    "description": "Provider endpoint override"
   },
-  "modelHintLoaded": {
-    "message": "Pick a model from the list. Free models are sorted by largest context first.",
-    "description": "Model list ready hint"
+  "labelFallback": {
+    "message": "Fallback providers (optional)",
+    "description": "Providers to try if the main one fails"
   },
-  "modelHintFallback": {
-    "message": "Using fallback model list. Check your network/API access.",
-    "description": "Model fallback hint"
+  "hintFallback": {
+    "message": "Only used if the selected provider fails. Form contents are sent to each one you pick here.",
+    "description": "Privacy note for fallback providers"
+  },
+
+  "labelBehavior": {
+    "message": "Behavior",
+    "description": "Orchestration settings section"
   },
   "labelFillMode": {
     "message": "Fill mode",
-    "description": "Hybrid / AI / Heuristics"
+    "description": "Hybrid, AI only, or heuristics only"
   },
   "modeHybrid": {
     "message": "Hybrid (heuristics + AI)",
-    "description": "Option"
+    "description": "Fill mode option"
   },
   "modeAiOnly": {
     "message": "AI only",
-    "description": "Option"
+    "description": "Fill mode option"
   },
   "modeHeuristicsOnly": {
-    "message": "Heuristics only",
-    "description": "Option"
+    "message": "Heuristics only (no API key)",
+    "description": "Fill mode option"
   },
-  "hintPersona": {
-    "message": "Optional test identity for consistent fake names, email, and phone (heuristics + AI). Language follows the page automatically.",
-    "description": "Intro under persona section"
+  "labelLanguage": {
+    "message": "Value language",
+    "description": "Output language policy"
   },
-  "labelPersonaEmail": {
-    "message": "Email",
-    "description": "Persona email field"
+  "langAuto": {
+    "message": "Follow the page",
+    "description": "Language policy option"
   },
-  "labelPersonaFirstName": {
-    "message": "First name",
-    "description": "Persona first name"
+  "langOverride": {
+    "message": "Always use...",
+    "description": "Language policy option"
   },
-  "labelPersonaLastName": {
-    "message": "Last name",
-    "description": "Persona last name"
+  "hintLanguage": {
+    "message": "A field with its own lang attribute always wins over this setting.",
+    "description": "Language help text"
   },
-  "labelPersonaPhone": {
-    "message": "Phone",
-    "description": "Persona phone"
+  "labelAutoNextEnabled": {
+    "message": "Advance through multi-step forms automatically",
+    "description": "Auto-next toggle"
   },
-  "labelPersonaAdvanced": {
-    "message": "More fields (JSON)",
-    "description": "Advanced persona JSON"
-  },
-  "hintPersonaAdvanced": {
-    "message": "Optional. Add extra keys for heuristics (e.g. url, street, city, zip, country, fullName). Merged with the fields above.",
-    "description": "Help under advanced JSON"
-  },
-  "placeholderPersonaAdvanced": {
-    "message": "{\n  \"country\": \"DE\",\n  \"fullName\": \"Alex Tester\"\n}",
-    "description": "Example JSON in textarea"
+  "labelAutoNextMaxSteps": {
+    "message": "Maximum steps",
+    "description": "Safety cap on wizard traversal"
   },
   "labelMaxRounds": {
-    "message": "Max rounds",
-    "description": "Conditional fill"
+    "message": "Maximum rounds per step",
+    "description": "Retry loop cap within a step"
   },
   "labelSettleMs": {
     "message": "Settle delay (ms)",
-    "description": "After apply"
-  },
-  "labelAutoNextEnabled": {
-    "message": "Auto-next pages when current step is complete",
-    "description": "Enable automatic next-step button clicking"
-  },
-  "labelAutoNextMaxSteps": {
-    "message": "Max auto-next pages",
-    "description": "Safety limit for auto-next navigation"
+    "description": "Extra wait after writing values"
   },
   "labelFillEmptyOnly": {
     "message": "Fill empty fields only",
-    "description": "Checkbox"
+    "description": "Skip fields that already have a value"
   },
+
   "btnSave": {
     "message": "Save settings",
-    "description": "Button"
+    "description": "Persists settings and any entered key"
   },
   "btnClearKey": {
-    "message": "Clear API key",
-    "description": "Button"
-  },
-  "btnFill": {
-    "message": "Fill this tab",
-    "description": "Button"
+    "message": "Clear key",
+    "description": "Removes the stored key for the selected provider"
   },
   "statusIdle": {
     "message": "Ready.",
-    "description": "Status"
+    "description": "Idle status"
   },
   "statusNoTab": {
     "message": "No active tab.",
-    "description": "Error"
+    "description": "Error status"
   },
-  "statusSent": {
-    "message": "Fill command sent.",
-    "description": "Success"
+  "keyHint": {
+    "message": "Keys are stored by the extension and read only by its background worker. They are never exposed to web pages. Anyone with access to this browser profile can use a stored key.",
+    "description": "Security note"
   },
   "errGeneric": {
     "message": "Something went wrong.",
-    "description": "Error"
-  },
-  "keyHint": {
-    "message": "Keys stay in extension storage (local or session). Never sent to web pages. Lock your device—anyone with this profile can use a stored key.",
-    "description": "Security hint under title"
+    "description": "Generic error"
   }
 }

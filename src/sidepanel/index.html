@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Form Filler</title>
+    <link rel="stylesheet" href="./sidepanel.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1 class="title" id="heading">AI Form Filler</h1>
+      <span class="badge" id="providerBadge"></span>
+    </header>
+
+    <main class="content">
+      <!-- Run -->
+      <section class="card">
+        <label class="lbl" for="customRequest" id="lblCustomRequest"></label>
+        <textarea
+          id="customRequest"
+          class="inp ta"
+          rows="3"
+          spellcheck="false"
+          autocomplete="off"
+        ></textarea>
+        <p class="hint" id="hintCustomRequest"></p>
+
+        <button type="button" id="btnFill" class="btn primary block"></button>
+        <p id="status" class="status" role="status"></p>
+      </section>
+
+      <!-- Progress -->
+      <section class="card">
+        <div class="cardHead">
+          <h2 class="cardTitle" id="lblProgress"></h2>
+          <button type="button" id="btnClearLog" class="btn tiny"></button>
+        </div>
+        <ol class="log" id="log" aria-live="polite"></ol>
+      </section>
+
+      <!-- Connection -->
+      <details class="card" id="connectionCard" open>
+        <summary class="cardTitle" id="lblConnection"></summary>
+
+        <label class="lbl" for="provider" id="lblProvider"></label>
+        <select id="provider" class="inp"></select>
+
+        <label class="lbl" for="apiKey" id="lblApiKey"></label>
+        <div class="row gap">
+          <input id="apiKey" type="password" class="inp grow" autocomplete="off" />
+          <button type="button" id="btnTestKey" class="btn"></button>
+        </div>
+        <p class="subhint" id="keyStatus"></p>
+
+        <label class="chk">
+          <input type="checkbox" id="rememberKey" />
+          <span id="lblRemember"></span>
+        </label>
+
+        <label class="chk">
+          <input type="checkbox" id="encryptKeys" />
+          <span id="lblEncryptKeys"></span>
+        </label>
+
+        <div id="vaultRow" class="row gap hidden">
+          <input
+            id="passphrase"
+            type="password"
+            class="inp grow"
+            autocomplete="off"
+            placeholder="Vault passphrase"
+          />
+          <button type="button" id="btnUnlock" class="btn"></button>
+        </div>
+        <p class="subhint" id="vaultStatus"></p>
+
+        <label class="lbl" for="model" id="lblModel"></label>
+        <select id="model" class="inp"></select>
+        <p class="subhint" id="modelHint"></p>
+
+        <label class="lbl" for="baseUrl" id="lblBaseUrl"></label>
+        <input id="baseUrl" type="text" class="inp" spellcheck="false" />
+
+        <label class="lbl" for="fallbackProviders" id="lblFallback"></label>
+        <select id="fallbackProviders" class="inp" multiple size="3"></select>
+        <p class="subhint" id="hintFallback"></p>
+      </details>
+
+      <!-- Behavior -->
+      <details class="card">
+        <summary class="cardTitle" id="lblBehavior"></summary>
+
+        <label class="lbl" for="fillMode" id="lblFillMode"></label>
+        <select id="fillMode" class="inp">
+          <option value="hybrid" id="optHybrid"></option>
+          <option value="ai_only" id="optAi"></option>
+          <option value="heuristics_only" id="optHeur"></option>
+        </select>
+
+        <label class="lbl" for="fillLanguage" id="lblLanguage"></label>
+        <select id="fillLanguage" class="inp">
+          <option value="auto" id="optLangAuto"></option>
+          <option value="override" id="optLangOverride"></option>
+        </select>
+
+        <input
+          id="fillLocaleOverride"
+          type="text"
+          class="inp hidden"
+          spellcheck="false"
+          placeholder="ja-JP"
+        />
+        <p class="subhint" id="hintLanguage"></p>
+
+        <label class="chk">
+          <input type="checkbox" id="autoNextEnabled" />
+          <span id="lblAutoNext"></span>
+        </label>
+
+        <label class="lbl" for="autoNextMaxSteps" id="lblAutoNextMaxSteps"></label>
+        <input id="autoNextMaxSteps" type="number" class="inp sm" min="1" max="50" />
+
+        <label class="lbl" for="maxRounds" id="lblMaxRounds"></label>
+        <input id="maxRounds" type="number" class="inp sm" min="1" max="60" />
+
+        <label class="lbl" for="settleMs" id="lblSettle"></label>
+        <input id="settleMs" type="number" class="inp sm" min="0" max="3000" step="10" />
+
+        <label class="chk">
+          <input type="checkbox" id="fillEmptyOnly" />
+          <span id="lblFillEmpty"></span>
+        </label>
+      </details>
+
+      <div class="row gap">
+        <button type="button" id="btnSave" class="btn grow"></button>
+        <button type="button" id="btnClearKey" class="btn"></button>
+      </div>
+
+      <p class="hint" id="keyHint"></p>
+    </main>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

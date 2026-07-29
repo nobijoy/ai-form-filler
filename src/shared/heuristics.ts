@@ -1,6 +1,15 @@
 import type { FieldDescriptor } from "./types";
 import { isFillableField } from "./fillable";
 
+/**
+ * Network-free value generation for fields whose meaning is unambiguous from
+ * their type or autocomplete token. Anything requiring judgement (selects,
+ * radios, checkboxes, prose, payment data) is left to the model.
+ *
+ * Values are seeded from the run's identity map so that a field filled here
+ * stays consistent with the same slot on a later step.
+ */
+
 const PAYMENT_AUTOCOMPLETE = /^(cc-|card)/i;
 
 const HEURISTIC_AUTOCOMPLETE = new Set([
@@ -21,110 +30,107 @@ const HEURISTIC_AUTOCOMPLETE = new Set([
   "tel-national",
 ]);
 
-export interface Persona {
-  email?: string;
-  firstName?: string;
-  lastName?: string;
-  fullName?: string;
-  phone?: string;
-  url?: string;
-  street?: string;
-  city?: string;
-  zip?: string;
-  country?: string;
-}
-
-export function parsePersona(json: string): Persona {
-  if (!json.trim()) return {};
-  try {
-    return JSON.parse(json) as Persona;
-  } catch {
-    return {};
-  }
-}
+/** Values already chosen this run, keyed by semantic slot. */
+export type IdentityMap = Record<string, string>;
 
 function randomTag(): string {
   return Math.random().toString(36).slice(2, 8);
 }
 
-export function classifyField(f: FieldDescriptor): "heuristic" | "ai" {
-  if (!isFillableField(f)) return "ai";
-  const ac = (f.autoComplete || "").toLowerCase().split(/\s+/)[0];
-  if (PAYMENT_AUTOCOMPLETE.test(f.autoComplete || "")) return "ai";
-  if (f.inputType === "password") return "ai";
-  if (f.tag === "select" || f.radioGroup) return "ai";
-  if (f.inputType === "checkbox") return "ai";
+function primaryAutoCompleteToken(field: FieldDescriptor): string {
+  return (field.autoComplete || "").toLowerCase().split(/\s+/)[0] ?? "";
+}
 
-  if (f.tag === "input") {
-    if (f.inputType === "email") return "heuristic";
-    if (f.inputType === "url") return "heuristic";
-    if (f.inputType === "tel") return "heuristic";
-    if (f.inputType === "number") return "heuristic";
-    if (ac && HEURISTIC_AUTOCOMPLETE.has(ac)) return "heuristic";
-  }
+export function classifyField(field: FieldDescriptor): "heuristic" | "ai" {
+  if (!isFillableField(field)) return "ai";
+  if (PAYMENT_AUTOCOMPLETE.test(field.autoComplete || "")) return "ai";
+  if (field.inputType === "password") return "ai";
 
-  if (f.tag === "textarea") {
-    const label = `${f.labelText || ""} ${f.placeholder || ""}`.toLowerCase();
-    if (
-      /comment|message|description|notes|feedback|details/.test(label) &&
-      (!f.maxLength || f.maxLength <= 500)
-    ) {
-      return "heuristic";
-    }
+  // Anything with a choice set, or any boolean, needs to understand the form.
+  if (field.kind && field.kind !== "text" && field.kind !== "textarea") return "ai";
+  if (field.tag === "select" || field.radioGroup) return "ai";
+
+  const token = primaryAutoCompleteToken(field);
+
+  if (field.kind === "text" || field.tag === "input") {
+    if (field.inputType === "email") return "heuristic";
+    if (field.inputType === "url") return "heuristic";
+    if (field.inputType === "tel") return "heuristic";
+    if (token && HEURISTIC_AUTOCOMPLETE.has(token)) return "heuristic";
   }
 
   return "ai";
 }
 
+/**
+ * Whether a generic value satisfies the constraints the field declares.
+ *
+ * A locale-specific format ("0XX-XXXX-XXXX") is exactly the case a generic
+ * value gets wrong, and handing it over anyway costs a full validation round
+ * trip. Deferring to the model is cheaper than being rejected by the page.
+ */
+function satisfiesConstraints(value: string, field: FieldDescriptor): boolean {
+  if (field.maxLength && value.length > field.maxLength) return false;
+  if (!field.pattern) return true;
+  try {
+    return new RegExp(`^(?:${field.pattern})$`).test(value);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * A generated value, or null when the field needs the model.
+ *
+ * `identity` is read *and* respected: reusing the earlier email is what makes a
+ * later "confirm your email" field match.
+ */
 export function tryHeuristicValue(
-  f: FieldDescriptor,
-  persona: Persona,
+  field: FieldDescriptor,
+  identity: IdentityMap = {},
 ): string | null {
-  if (classifyField(f) !== "heuristic") return null;
+  const value = generateHeuristicValue(field, identity);
+  if (value === null) return null;
+  return satisfiesConstraints(value, field) ? value : null;
+}
 
-  const ac = (f.autoComplete || "").toLowerCase().split(/\s+/)[0];
+function generateHeuristicValue(field: FieldDescriptor, identity: IdentityMap): string | null {
+  if (classifyField(field) !== "heuristic") return null;
 
-  if (f.inputType === "email" || ac === "email") {
-    return (
-      persona.email ||
-      `test.user+${randomTag()}@example.com`
-    );
-  }
-  if (f.inputType === "url" || ac === "url") {
-    return persona.url || "https://example.com";
-  }
-  if (f.inputType === "tel" || ac?.startsWith("tel")) {
-    return persona.phone || "+15555550100";
-  }
-  if (f.inputType === "number") {
-    return "42";
-  }
-  if (ac === "given-name")
-    return persona.firstName || "Test";
-  if (ac === "family-name")
-    return persona.lastName || "User";
-  if (ac === "name" || ac === "nickname")
-    return persona.fullName || "Test User";
-  if (ac === "username")
-    return persona.email?.split("@")[0] || `user_${randomTag()}`;
-  if (ac === "street-address" || ac === "address-line1")
-    return persona.street || "123 Test Street";
-  if (ac === "address-line2")
-    return "";
-  if (ac === "postal-code")
-    return persona.zip || "94105";
-  if (ac === "country" || ac === "country-name")
-    return persona.country || "US";
+  const token = primaryAutoCompleteToken(field);
 
-  if (f.tag === "textarea") {
-    const max = f.maxLength && f.maxLength > 0 ? Math.min(f.maxLength, 200) : 120;
-    return "Test comment for QA.".slice(0, max);
+  if (field.inputType === "email" || token === "email") {
+    return identity.email || `test.user+${randomTag()}@example.com`;
+  }
+  if (field.inputType === "url" || token === "url") {
+    return identity.url || "https://example.com";
+  }
+  if (field.inputType === "tel" || token.startsWith("tel")) {
+    return identity.phone || "+15555550100";
   }
 
-  if (f.tag === "input" && f.inputType === "text") {
-    const label = `${f.labelText || ""}`.toLowerCase();
-    if (/city|town/.test(label)) return persona.city || "San Francisco";
-    if (/zip|postal/.test(label)) return persona.zip || "94105";
+  switch (token) {
+    case "given-name":
+      return identity.firstName || "Test";
+    case "family-name":
+      return identity.lastName || "User";
+    case "name":
+    case "nickname":
+      return identity.fullName || "Test User";
+    case "username":
+      return identity.username || identity.email?.split("@")[0] || `user_${randomTag()}`;
+    case "street-address":
+    case "address-line1":
+      return identity.street || "123 Test Street";
+    case "address-line2":
+      return null;
+    case "postal-code":
+      return identity.postalCode || "94105";
+    case "country":
+    case "country-name":
+      return identity.country || "US";
+    default:
+      break;
   }
 
   return null;
