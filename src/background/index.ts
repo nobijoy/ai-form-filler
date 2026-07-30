@@ -1,5 +1,5 @@
 import { callLlmForFill, callLlmForNavigation, getProviderModels, testProviderKey } from "./llm";
-import { PROVIDERS, isProviderId } from "../shared/providers";
+import { PROVIDERS, PROVIDER_IDS, isProviderId } from "../shared/providers";
 import { isVaultUnlocked, lockVault, unlockVault } from "./keyVault";
 import {
   clearApiKey,
@@ -127,8 +127,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return true;
 
     case "CLEAR_API_KEY":
-      void clearApiKey((message as { provider?: LlmProviderId }).provider).then(() =>
-        sendResponse({ ok: true }),
+      void handleClearApiKey(
+        (message as { provider?: LlmProviderId }).provider,
+        sendResponse,
       );
       return true;
 
@@ -208,22 +209,64 @@ async function handleSaveSettings(
   sendResponse: Responder,
 ): Promise<void> {
   const before = await getSettings();
-  await saveSettings(message.settings);
-  const after = await getSettings();
+  const nextProvider =
+    message.settings.provider && isProviderId(message.settings.provider)
+      ? message.settings.provider
+      : before.provider;
+  const encryptionChanges =
+    message.settings.encryptKeys !== undefined &&
+    message.settings.encryptKeys !== before.encryptKeys;
+  const retentionChanges =
+    message.settings.rememberKeyAcrossRestarts !== undefined &&
+    message.settings.rememberKeyAcrossRestarts !== before.rememberKeyAcrossRestarts;
 
-  if (after.encryptKeys !== before.encryptKeys) {
-    try {
-      await reencryptStoredKeys(after.encryptKeys);
-    } catch (error) {
+  try {
+    if (
+      retentionChanges &&
+      (await isKeyEncrypted(nextProvider)) &&
+      !(await isVaultUnlocked())
+    ) {
       sendResponse({
         ok: false,
-        error: error instanceof Error ? error.message : "Could not re-encrypt stored keys.",
+        error: "Unlock the vault before changing whether this encrypted key persists across browser restarts.",
       });
       return;
     }
-  }
 
-  sendResponse({ ok: true });
+    if (encryptionChanges) {
+      let encryptedKeysExist = false;
+      for (const provider of PROVIDER_IDS) {
+        if (await isKeyEncrypted(provider)) {
+          encryptedKeysExist = true;
+          break;
+        }
+      }
+
+      const enabling = message.settings.encryptKeys === true;
+      const unlockRequired = enabling || encryptedKeysExist;
+      if (unlockRequired && !(await isVaultUnlocked())) {
+        sendResponse({
+          ok: false,
+          error: enabling
+            ? "Enter a vault passphrase and unlock the vault before enabling encryption."
+            : "Unlock the vault before disabling encryption, so stored keys can be decrypted safely.",
+        });
+        return;
+      }
+
+      // Convert the stored material before changing the setting. This prevents
+      // encryptKeys=true with plaintext keys (or the inverse) after a failure.
+      await reencryptStoredKeys(message.settings.encryptKeys === true);
+    }
+
+    await saveSettings(message.settings);
+    sendResponse({ ok: true });
+  } catch (error) {
+    sendResponse({
+      ok: false,
+      error: error instanceof Error ? error.message : "Could not save settings.",
+    });
+  }
 }
 
 async function handleSaveApiKey(message: SaveKeyMessage, sendResponse: Responder): Promise<void> {
@@ -232,10 +275,10 @@ async function handleSaveApiKey(message: SaveKeyMessage, sendResponse: Responder
     return;
   }
 
-  const settings = await getSettings();
-  await saveSettings({ rememberKeyAcrossRestarts: message.rememberAcrossRestarts });
-
   try {
+    const settings = await getSettings();
+    await saveSettings({ rememberKeyAcrossRestarts: message.rememberAcrossRestarts });
+
     if (message.apiKey.length > 0) {
       await saveApiKey(
         message.provider,
@@ -251,6 +294,26 @@ async function handleSaveApiKey(message: SaveKeyMessage, sendResponse: Responder
     sendResponse({
       ok: false,
       error: error instanceof Error ? error.message : "Could not save the API key.",
+    });
+  }
+}
+
+async function handleClearApiKey(
+  provider: LlmProviderId | undefined,
+  sendResponse: Responder,
+): Promise<void> {
+  if (provider !== undefined && !isProviderId(provider)) {
+    sendResponse({ ok: false, error: "Unknown provider." });
+    return;
+  }
+
+  try {
+    await clearApiKey(provider);
+    sendResponse({ ok: true });
+  } catch (error) {
+    sendResponse({
+      ok: false,
+      error: error instanceof Error ? error.message : "Could not clear the API key.",
     });
   }
 }
@@ -324,7 +387,22 @@ async function handleUnlockVault(
   sendResponse: Responder,
 ): Promise<void> {
   try {
+    const encryptedProviders: LlmProviderId[] = [];
+    for (const provider of PROVIDER_IDS) {
+      if (await isKeyEncrypted(provider)) encryptedProviders.push(provider);
+    }
+
     await unlockVault(message.passphrase);
+
+    // Deriving a key always succeeds, even for the wrong passphrase. Verify it
+    // against every encrypted API key before reporting the vault as unlocked.
+    for (const provider of encryptedProviders) {
+      if (await getApiKey(provider)) continue;
+      await lockVault();
+      sendResponse({ ok: false, error: "Incorrect vault passphrase." });
+      return;
+    }
+
     sendResponse({ ok: true });
   } catch (error) {
     sendResponse({

@@ -26,9 +26,15 @@ const FALLBACKS: Record<string, string> = {
   labelProvider: "Provider",
   labelApiKey: "API key",
   btnTestKey: "Test",
+  btnSaveKey: "Save key",
+  btnReplaceKey: "Replace key",
+  btnClearKey: "Remove key",
+  btnShowKey: "Show",
+  btnHideKey: "Hide",
   labelRememberKey: "Remember key across browser restarts",
   labelEncryptKeys: "Encrypt stored keys with a passphrase",
   btnUnlock: "Unlock",
+  btnLock: "Lock",
   labelModel: "Model",
   labelBehavior: "Behavior",
   labelFillMode: "Fill mode",
@@ -45,7 +51,6 @@ const FALLBACKS: Record<string, string> = {
   labelSettleMs: "Settle delay (ms)",
   labelFillEmptyOnly: "Fill empty fields only",
   btnSave: "Save settings",
-  btnClearKey: "Clear key",
   statusIdle: "Ready.",
   statusNoTab: "No active tab.",
   keyHint:
@@ -183,9 +188,13 @@ function applyI18n(): void {
     ["lblProvider", "labelProvider"],
     ["lblApiKey", "labelApiKey"],
     ["btnTestKey", "btnTestKey"],
+    ["btnSaveKey", "btnSaveKey"],
+    ["btnClearKey", "btnClearKey"],
+    ["btnToggleKey", "btnShowKey"],
     ["lblRemember", "labelRememberKey"],
     ["lblEncryptKeys", "labelEncryptKeys"],
     ["btnUnlock", "btnUnlock"],
+    ["btnLock", "btnLock"],
     ["lblModel", "labelModel"],
     ["lblBehavior", "labelBehavior"],
     ["lblFillMode", "labelFillMode"],
@@ -202,7 +211,6 @@ function applyI18n(): void {
     ["lblSettle", "labelSettleMs"],
     ["lblFillEmpty", "labelFillEmptyOnly"],
     ["btnSave", "btnSave"],
-    ["btnClearKey", "btnClearKey"],
     ["keyHint", "keyHint"],
   ];
 
@@ -221,6 +229,7 @@ let modelOptions: ModelOption[] = [];
 let keyPresence: Partial<Record<LlmProviderId, boolean>> = {};
 let encryptedKeys: Partial<Record<LlmProviderId, boolean>> = {};
 let vaultUnlocked = false;
+let modelRequestId = 0;
 
 function currentProvider(): LlmProviderId {
   return (select("provider").value || DEFAULT_SETTINGS.provider) as LlmProviderId;
@@ -262,6 +271,7 @@ function renderModelSelect(preferred: string): void {
 }
 
 async function loadModels(provider: LlmProviderId, preferredModel: string): Promise<void> {
+  const requestId = ++modelRequestId;
   const node = select("model");
   node.disabled = true;
   el("modelHint").textContent = "Loading models…";
@@ -275,6 +285,9 @@ async function loadModels(provider: LlmProviderId, preferredModel: string): Prom
   } catch {
     response = undefined;
   }
+
+  // Ignore a slow response for a provider the user has already switched away from.
+  if (requestId !== modelRequestId || provider !== currentProvider()) return;
 
   modelOptions =
     response?.models && response.models.length > 0
@@ -297,6 +310,7 @@ function updateKeyUi(provider: LlmProviderId): void {
 
   const status = el("keyStatus");
   status.className = "subhint";
+  updateKeyControls();
 
   if (!hasKey) {
     status.textContent = `No key saved. Get one at ${PROVIDERS[provider].docsUrl}`;
@@ -313,19 +327,55 @@ function updateKeyUi(provider: LlmProviderId): void {
   status.classList.add("key-ok");
 }
 
+function hasEncryptedKeys(): boolean {
+  return Object.values(encryptedKeys).some(Boolean);
+}
+
+function updateKeyControls(): void {
+  const provider = currentProvider();
+  const hasKey = keyPresence[provider] === true;
+  const hasTypedKey = input("apiKey").value.trim().length > 0;
+  const currentKeyLocked = encryptedKeys[provider] === true && !vaultUnlocked;
+  const encryptionNeedsUnlock = input("encryptKeys").checked && !vaultUnlocked;
+
+  el<HTMLButtonElement>("btnSaveKey").disabled = !hasTypedKey || encryptionNeedsUnlock;
+  el<HTMLButtonElement>("btnSaveKey").textContent = hasKey ? t("btnReplaceKey") : t("btnSaveKey");
+  el<HTMLButtonElement>("btnTestKey").disabled =
+    !hasTypedKey && (!hasKey || currentKeyLocked);
+  el<HTMLButtonElement>("btnClearKey").disabled = !hasKey;
+  el<HTMLButtonElement>("btnToggleKey").disabled = !hasTypedKey;
+}
+
 function updateVaultUi(): void {
   const enabled = input("encryptKeys").checked;
-  el("vaultRow").classList.toggle("hidden", !enabled);
+  const encryptedExists = hasEncryptedKeys();
+  const showVault = enabled || encryptedExists || vaultUnlocked;
+  el("vaultRow").classList.toggle("hidden", !showVault);
+  input("passphrase").classList.toggle("hidden", vaultUnlocked);
+  el("btnUnlock").classList.toggle("hidden", vaultUnlocked);
+  el("btnLock").classList.toggle("hidden", !vaultUnlocked);
 
   const status = el("vaultStatus");
-  if (!enabled) {
+  if (!enabled && !encryptedExists) {
     status.textContent = "";
+    status.className = "subhint";
+    updateKeyControls();
     return;
   }
-  status.textContent = vaultUnlocked
-    ? "Vault unlocked for this browser session."
-    : "Vault locked. Enter your passphrase to read or save keys.";
+
+  if (vaultUnlocked) {
+    status.textContent = enabled
+      ? "Vault unlocked. New and existing keys will be encrypted."
+      : "Vault unlocked. Save settings to decrypt stored keys.";
+  } else if (enabled && !encryptedExists) {
+    status.textContent = "Enter a passphrase and unlock the vault before saving encrypted keys.";
+  } else if (!enabled && encryptedExists) {
+    status.textContent = "Unlock the vault before turning encryption off.";
+  } else {
+    status.textContent = "Vault locked. Unlock it to use or change encrypted keys.";
+  }
   status.className = vaultUnlocked ? "subhint key-ok" : "subhint key-err";
+  updateKeyControls();
 }
 
 function updateLanguageUi(): void {
@@ -349,7 +399,7 @@ interface SettingsResponse {
   vaultUnlocked?: boolean;
 }
 
-async function load(): Promise<void> {
+async function load(resetStatus = true): Promise<void> {
   const response = await sendMessage<SettingsResponse>({ type: "GET_SETTINGS" });
   const settings = { ...DEFAULT_SETTINGS, ...response.settings };
 
@@ -371,6 +421,8 @@ async function load(): Promise<void> {
   input("rememberKey").checked = settings.rememberKeyAcrossRestarts;
   input("encryptKeys").checked = settings.encryptKeys;
   input("apiKey").value = "";
+  input("apiKey").type = "password";
+  el("btnToggleKey").textContent = t("btnShowKey");
 
   await loadModels(settings.provider, settings.model);
 
@@ -378,7 +430,7 @@ async function load(): Promise<void> {
   updateVaultUi();
   updateLanguageUi();
   updateProviderBadge();
-  setStatus(t("statusIdle"));
+  if (resetStatus) setStatus(t("statusIdle"));
 }
 
 function collectSettings(): Partial<ExtensionSettings> {
@@ -405,6 +457,10 @@ function collectSettings(): Partial<ExtensionSettings> {
 }
 
 async function onSave(): Promise<void> {
+  const button = el<HTMLButtonElement>("btnSave");
+  button.disabled = true;
+  button.textContent = "Saving…";
+
   try {
     const result = await sendMessage<{ ok: boolean; error?: string }>({
       type: "SAVE_SETTINGS",
@@ -415,24 +471,59 @@ async function onSave(): Promise<void> {
       return;
     }
 
-    const key = input("apiKey").value;
-    if (key.length > 0) {
-      const keyResult = await sendMessage<{ ok: boolean; error?: string }>({
-        type: "SAVE_API_KEY",
-        provider: currentProvider(),
-        apiKey: key,
-        rememberAcrossRestarts: input("rememberKey").checked,
-      });
-      if (!keyResult.ok) {
-        setStatus(keyResult.error ?? t("errGeneric"), "err");
-        return;
-      }
-    }
-
+    await load(false);
     setStatus("Settings saved.", "ok");
-    await load();
   } catch (error) {
     setStatus(error instanceof Error ? error.message : t("errGeneric"), "err");
+  } finally {
+    button.disabled = false;
+    button.textContent = t("btnSave");
+  }
+}
+
+async function onSaveKey(): Promise<void> {
+  const provider = currentProvider();
+  const key = input("apiKey").value.trim();
+  if (!key) {
+    el("keyStatus").textContent = "Enter an API key first.";
+    el("keyStatus").className = "subhint key-err";
+    return;
+  }
+
+  const button = el<HTMLButtonElement>("btnSaveKey");
+  button.disabled = true;
+  button.textContent = "Saving…";
+
+  try {
+    // Persist the encryption and retention choices first so this key is stored
+    // using exactly the policy currently shown in the UI.
+    const settingsResult = await sendMessage<{ ok: boolean; error?: string }>({
+      type: "SAVE_SETTINGS",
+      settings: collectSettings(),
+    });
+    if (!settingsResult.ok) {
+      setStatus(settingsResult.error ?? t("errGeneric"), "err");
+      return;
+    }
+
+    const result = await sendMessage<{ ok: boolean; error?: string }>({
+      type: "SAVE_API_KEY",
+      provider,
+      apiKey: key,
+      rememberAcrossRestarts: input("rememberKey").checked,
+    });
+    if (!result.ok) {
+      setStatus(result.error ?? "Could not save the API key.", "err");
+      return;
+    }
+
+    await load(false);
+    setStatus(`${PROVIDERS[provider].label} key saved.`, "ok");
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : "Could not save the API key.", "err");
+  } finally {
+    button.disabled = false;
+    updateKeyControls();
   }
 }
 
@@ -568,22 +659,52 @@ applyI18n();
 void load();
 
 el("btnSave").addEventListener("click", () => void onSave());
+el("btnSaveKey").addEventListener("click", () => void onSaveKey());
 el("btnFill").addEventListener("click", () => void onFill());
 el("btnClearLog").addEventListener("click", () => el("log").replaceChildren());
 
 el("btnClearKey").addEventListener("click", () => {
   void (async () => {
-    await sendMessage({ type: "CLEAR_API_KEY", provider: currentProvider() });
-    setStatus("Key cleared.", "ok");
-    await load();
+    const provider = currentProvider();
+    if (!keyPresence[provider]) return;
+    if (!window.confirm(`Remove the saved ${PROVIDERS[provider].label} API key?`)) return;
+
+    const button = el<HTMLButtonElement>("btnClearKey");
+    button.disabled = true;
+    try {
+      const result = await sendMessage<{ ok: boolean; error?: string }>({
+        type: "CLEAR_API_KEY",
+        provider,
+      });
+      if (!result.ok) {
+        setStatus(result.error ?? "Could not remove the API key.", "err");
+        return;
+      }
+      keyPresence[provider] = false;
+      encryptedKeys[provider] = false;
+      input("apiKey").value = "";
+      updateKeyUi(provider);
+      updateVaultUi();
+      setStatus(`${PROVIDERS[provider].label} key removed.`, "ok");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not remove the API key.", "err");
+    } finally {
+      updateKeyControls();
+    }
   })();
 });
 
 select("provider").addEventListener("change", () => {
   void (async () => {
     const provider = currentProvider();
-    await loadModels(provider, PROVIDERS[provider].defaultModel);
+    // Never carry secret text across providers: it could otherwise be saved
+    // under the wrong account after a provider switch.
+    input("apiKey").value = "";
+    input("apiKey").type = "password";
+    el("btnToggleKey").textContent = t("btnShowKey");
     updateKeyUi(provider);
+    updateProviderBadge();
+    await loadModels(provider, PROVIDERS[provider].defaultModel);
     updateProviderBadge();
   })();
 });
@@ -591,6 +712,27 @@ select("provider").addEventListener("change", () => {
 select("model").addEventListener("change", updateProviderBadge);
 select("fillLanguage").addEventListener("change", updateLanguageUi);
 input("encryptKeys").addEventListener("change", updateVaultUi);
+input("apiKey").addEventListener("input", () => {
+  updateKeyControls();
+  if (!input("apiKey").value.trim()) {
+    updateKeyUi(currentProvider());
+    return;
+  }
+  el("keyStatus").textContent = keyPresence[currentProvider()]
+    ? "New key entered. Save it to replace the stored key."
+    : "Key entered but not saved.";
+  el("keyStatus").className = "subhint";
+});
+
+el("btnToggleKey").addEventListener("click", () => {
+  const field = input("apiKey");
+  const showing = field.type === "text";
+  field.type = showing ? "password" : "text";
+  const label = showing ? t("btnShowKey") : t("btnHideKey");
+  el("btnToggleKey").textContent = label;
+  el("btnToggleKey").setAttribute("aria-label", `${label} API key`);
+  el("btnToggleKey").setAttribute("title", `${label} API key`);
+});
 
 el("btnTestKey").addEventListener("click", () => {
   void (async () => {
@@ -599,6 +741,7 @@ el("btnTestKey").addEventListener("click", () => {
     status.className = "subhint";
     status.textContent = "Testing…";
     button.disabled = true;
+    const testingTypedKey = input("apiKey").value.trim().length > 0;
 
     try {
       // The typed key is sent so testing works before saving.
@@ -610,14 +753,16 @@ el("btnTestKey").addEventListener("click", () => {
       });
 
       status.textContent = result.ok
-        ? "Key is valid. Press Save settings to store it."
+        ? testingTypedKey
+          ? "Key is valid. Save it when ready."
+          : "Saved key is valid."
         : (result.error ?? "The key was rejected.");
       status.classList.add(result.ok ? "key-ok" : "key-err");
     } catch {
       status.textContent = "The test request could not be sent.";
       status.classList.add("key-err");
     } finally {
-      button.disabled = false;
+      updateKeyControls();
     }
   })();
 });
@@ -625,6 +770,7 @@ el("btnTestKey").addEventListener("click", () => {
 el("btnUnlock").addEventListener("click", () => {
   void (async () => {
     const passphrase = input("passphrase").value;
+    const desiredEncryption = input("encryptKeys").checked;
     if (!passphrase) {
       setStatus("Enter a passphrase first.", "err");
       return;
@@ -638,7 +784,33 @@ el("btnUnlock").addEventListener("click", () => {
       setStatus(result.error ?? "Could not unlock the vault.", "err");
       return;
     }
-    setStatus("Vault unlocked.", "ok");
-    await load();
+    vaultUnlocked = true;
+    // Unlocking is often part of enabling/disabling encryption. Keep all
+    // unsaved choices instead of reloading stored settings over the UI.
+    input("encryptKeys").checked = desiredEncryption;
+    updateVaultUi();
+    updateKeyUi(currentProvider());
+    await loadModels(currentProvider(), select("model").value);
+    setStatus("Vault unlocked for this browser session.", "ok");
   })();
+});
+
+el("btnLock").addEventListener("click", () => {
+  void (async () => {
+    try {
+      await sendMessage({ type: "LOCK_VAULT" });
+      vaultUnlocked = false;
+      updateVaultUi();
+      updateKeyUi(currentProvider());
+      setStatus("Vault locked.", "ok");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not lock the vault.", "err");
+    }
+  })();
+});
+
+input("passphrase").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  el<HTMLButtonElement>("btnUnlock").click();
 });

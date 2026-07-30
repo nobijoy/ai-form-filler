@@ -64,7 +64,23 @@
   },
   "btnTestKey": {
     "message": "Testen",
-    "description": "Validates the saved key"
+    "description": "Validates the entered or saved key"
+  },
+  "btnSaveKey": {
+    "message": "Schlüssel speichern",
+    "description": "Stores the entered API key"
+  },
+  "btnReplaceKey": {
+    "message": "Schlüssel ersetzen",
+    "description": "Replaces the stored API key"
+  },
+  "btnShowKey": {
+    "message": "Anzeigen",
+    "description": "Reveals the entered API key"
+  },
+  "btnHideKey": {
+    "message": "Ausblenden",
+    "description": "Hides the entered API key"
   },
   "labelRememberKey": {
     "message": "Schlüssel über Browser-Neustarts hinweg behalten",
@@ -78,21 +94,13 @@
     "message": "Entsperren",
     "description": "Unlocks the encrypted key vault"
   },
+  "btnLock": {
+    "message": "Sperren",
+    "description": "Locks the encrypted key vault"
+  },
   "labelModel": {
     "message": "Modell",
     "description": "Model selector"
-  },
-  "labelBaseUrl": {
-    "message": "API-Basis-URL",
-    "description": "Provider endpoint override"
-  },
-  "labelFallback": {
-    "message": "Ersatzanbieter (optional)",
-    "description": "Providers to try if the main one fails"
-  },
-  "hintFallback": {
-    "message": "Wird nur genutzt, wenn der gewählte Anbieter ausfällt. Formularinhalte gehen an jeden hier ausgewählten Anbieter.",
-    "description": "Privacy note for fallback providers"
   },
 
   "labelBehavior": {
@@ -154,10 +162,10 @@
 
   "btnSave": {
     "message": "Einstellungen speichern",
-    "description": "Persists settings and any entered key"
+    "description": "Persists extension settings"
   },
   "btnClearKey": {
-    "message": "Schlüssel löschen",
+    "message": "Schlüssel entfernen",
     "description": "Removes the stored key for the selected provider"
   },
   "statusIdle": {

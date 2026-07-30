@@ -64,7 +64,23 @@
   },
   "btnTestKey": {
     "message": "Test",
-    "description": "Validates the saved key"
+    "description": "Validates the entered or saved key"
+  },
+  "btnSaveKey": {
+    "message": "Save key",
+    "description": "Stores the entered API key"
+  },
+  "btnReplaceKey": {
+    "message": "Replace key",
+    "description": "Replaces the stored API key"
+  },
+  "btnShowKey": {
+    "message": "Show",
+    "description": "Reveals the entered API key"
+  },
+  "btnHideKey": {
+    "message": "Hide",
+    "description": "Hides the entered API key"
   },
   "labelRememberKey": {
     "message": "Remember key across browser restarts",
@@ -78,21 +94,13 @@
     "message": "Unlock",
     "description": "Unlocks the encrypted key vault"
   },
+  "btnLock": {
+    "message": "Lock",
+    "description": "Locks the encrypted key vault"
+  },
   "labelModel": {
     "message": "Model",
     "description": "Model selector"
-  },
-  "labelBaseUrl": {
-    "message": "API base URL",
-    "description": "Provider endpoint override"
-  },
-  "labelFallback": {
-    "message": "Fallback providers (optional)",
-    "description": "Providers to try if the main one fails"
-  },
-  "hintFallback": {
-    "message": "Only used if the selected provider fails. Form contents are sent to each one you pick here.",
-    "description": "Privacy note for fallback providers"
   },
 
   "labelBehavior": {
@@ -154,10 +162,10 @@
 
   "btnSave": {
     "message": "Save settings",
-    "description": "Persists settings and any entered key"
+    "description": "Persists extension settings"
   },
   "btnClearKey": {
-    "message": "Clear key",
+    "message": "Remove key",
     "description": "Removes the stored key for the selected provider"
   },
   "statusIdle": {

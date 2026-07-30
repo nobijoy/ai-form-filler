@@ -46,9 +46,20 @@
         <select id="provider" class="inp"></select>
 
         <label class="lbl" for="apiKey" id="lblApiKey"></label>
-        <div class="row gap">
+        <div class="row gap keyInputRow">
           <input id="apiKey" type="password" class="inp grow" autocomplete="off" />
+          <button
+            type="button"
+            id="btnToggleKey"
+            class="btn iconBtn"
+            aria-label="Show API key"
+            title="Show API key"
+          >Show</button>
+        </div>
+        <div class="keyActions">
           <button type="button" id="btnTestKey" class="btn"></button>
+          <button type="button" id="btnSaveKey" class="btn primary"></button>
+          <button type="button" id="btnClearKey" class="btn danger"></button>
         </div>
         <p class="subhint" id="keyStatus"></p>
 
@@ -71,6 +82,7 @@
             placeholder="Vault passphrase"
           />
           <button type="button" id="btnUnlock" class="btn"></button>
+          <button type="button" id="btnLock" class="btn hidden"></button>
         </div>
         <p class="subhint" id="vaultStatus"></p>
 
@@ -125,10 +137,7 @@
         </label>
       </details>
 
-      <div class="row gap">
-        <button type="button" id="btnSave" class="btn grow"></button>
-        <button type="button" id="btnClearKey" class="btn"></button>
-      </div>
+      <button type="button" id="btnSave" class="btn primary block"></button>
 
       <p class="hint" id="keyHint"></p>
     </main>
