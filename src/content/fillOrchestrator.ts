@@ -14,7 +14,7 @@ import {
   saveCheckpoint,
   type FillCheckpoint,
 } from "./runPersistence";
-import { tryHeuristicValue } from "../shared/heuristics";
+import { buildSeededPersona, tryHeuristicValue } from "../shared/heuristics";
 import { isFillableField } from "../shared/fillable";
 import { MAX_FORM_STEPS } from "../shared/types";
 import type {
@@ -215,6 +215,11 @@ export async function runFillOrchestration(
     settings.fillLocaleOverride,
     docLocale,
   );
+
+  // Concrete persona from the seed — heuristics and the LLM both reuse it, so
+  // runs stop collapsing onto the model's favourite stock names.
+  const persona = buildSeededPersona(state.context.variationSeed, fillLocale);
+  state.seedPersona(persona.identity, persona.sketch);
 
   const maxSteps = resume?.maxSteps ?? resolveMaxFormSteps(settings);
   const autoAdvance = shouldAutoAdvance(settings);

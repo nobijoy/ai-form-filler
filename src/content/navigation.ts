@@ -93,6 +93,35 @@ function detectActiveForm(): HTMLFormElement | null {
 const NAV_CONTROL_SELECTOR =
   "button, input[type='button'], input[type='submit'], a[role='button'], [role='button'], a[rel='next'], [data-next], [data-step-next]";
 
+const FILE_UPLOAD_PATTERN =
+  /\b(upload|choose\s+file|select\s+file|browse\s+file|attach(?:ment)?|drop\s+(?:a\s+)?file)\b/i;
+
+/**
+ * Upload launchers and PhoneInput country selectors are interactive buttons,
+ * but neither navigates a form. Keeping them out also guarantees auto-advance
+ * never opens an OS file picker.
+ */
+function isAuxiliaryControl(el: HTMLElement): boolean {
+  if (el.closest(".PhoneInput, [data-phone-input], [class*='phone-input' i]")) return true;
+  if (el instanceof HTMLInputElement && el.type === "file") return true;
+  if (el.querySelector('input[type="file"]')) return true;
+
+  const container = el.closest(
+    "label, [data-dropzone], [data-file-upload], [class*='dropzone' i], [class*='file-upload' i]",
+  );
+  if (container?.querySelector('input[type="file"]')) return true;
+
+  const controls = el.getAttribute("aria-controls");
+  if (controls) {
+    for (const id of controls.split(/\s+/)) {
+      const target = document.getElementById(id);
+      if (target instanceof HTMLInputElement && target.type === "file") return true;
+    }
+  }
+
+  return FILE_UPLOAD_PATTERN.test(`${controlLabel(el)} ${controlAttrBag(el)}`);
+}
+
 function controlPosition(
   el: HTMLElement,
   ordered: HTMLElement[],
@@ -121,7 +150,7 @@ export function scanNavigationCandidates(): {
 } {
   const activeForm = detectActiveForm();
   const nodes = Array.from(document.querySelectorAll<HTMLElement>(NAV_CONTROL_SELECTOR)).filter(
-    isElementInteractable,
+    (el) => isElementInteractable(el) && !isAuxiliaryControl(el),
   );
 
   const controls: NavigationControlDescriptor[] = [];

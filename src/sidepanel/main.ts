@@ -30,10 +30,6 @@ const FALLBACKS: Record<string, string> = {
   labelEncryptKeys: "Encrypt stored keys with a passphrase",
   btnUnlock: "Unlock",
   labelModel: "Model",
-  labelBaseUrl: "API base URL",
-  labelFallback: "Fallback providers (optional)",
-  hintFallback:
-    "Only used if the selected provider fails. Form contents are sent to each one you pick here.",
   labelBehavior: "Behavior",
   labelFillMode: "Fill mode",
   modeHybrid: "Hybrid (heuristics + AI)",
@@ -191,9 +187,6 @@ function applyI18n(): void {
     ["lblEncryptKeys", "labelEncryptKeys"],
     ["btnUnlock", "btnUnlock"],
     ["lblModel", "labelModel"],
-    ["lblBaseUrl", "labelBaseUrl"],
-    ["lblFallback", "labelFallback"],
-    ["hintFallback", "hintFallback"],
     ["lblBehavior", "labelBehavior"],
     ["lblFillMode", "labelFillMode"],
     ["optHybrid", "modeHybrid"],
@@ -245,19 +238,6 @@ function renderProviderSelect(selected: LlmProviderId): void {
   node.value = selected;
 }
 
-function renderFallbackSelect(active: LlmProviderId, selected: LlmProviderId[]): void {
-  const node = select("fallbackProviders");
-  node.replaceChildren();
-  for (const id of PROVIDER_IDS) {
-    if (id === active) continue;
-    const option = document.createElement("option");
-    option.value = id;
-    option.textContent = PROVIDERS[id].label;
-    option.selected = selected.includes(id);
-    node.append(option);
-  }
-}
-
 function renderModelSelect(preferred: string): void {
   const node = select("model");
   node.replaceChildren();
@@ -291,7 +271,6 @@ async function loadModels(provider: LlmProviderId, preferredModel: string): Prom
     response = await sendMessage({
       type: "GET_PROVIDER_MODELS",
       provider,
-      baseUrl: input("baseUrl").value.trim() || undefined,
     });
   } catch {
     response = undefined;
@@ -312,7 +291,6 @@ async function loadModels(provider: LlmProviderId, preferredModel: string): Prom
 
 function updateKeyUi(provider: LlmProviderId): void {
   el("lblApiKey").textContent = PROVIDERS[provider].keyLabel;
-  input("baseUrl").placeholder = PROVIDERS[provider].defaultBaseUrl;
 
   const hasKey = keyPresence[provider] === true;
   input("apiKey").placeholder = hasKey ? "•••••••• saved" : "";
@@ -380,9 +358,7 @@ async function load(): Promise<void> {
   vaultUnlocked = response.vaultUnlocked === true;
 
   renderProviderSelect(settings.provider);
-  renderFallbackSelect(settings.provider, settings.fallbackProviders);
 
-  input("baseUrl").value = settings.baseUrl || PROVIDERS[settings.provider].defaultBaseUrl;
   textarea("customRequest").value = settings.customRequest;
   select("fillMode").value = settings.fillMode;
   select("fillLanguage").value = settings.fillLanguage;
@@ -407,13 +383,12 @@ async function load(): Promise<void> {
 
 function collectSettings(): Partial<ExtensionSettings> {
   const provider = currentProvider();
-  const fallbackProviders = Array.from(select("fallbackProviders").selectedOptions).map(
-    (option) => option.value as LlmProviderId,
-  );
 
   return {
     provider,
-    baseUrl: input("baseUrl").value.trim() || PROVIDERS[provider].defaultBaseUrl,
+    // UI no longer exposes these; always use the provider default and no fan-out.
+    baseUrl: PROVIDERS[provider].defaultBaseUrl,
+    fallbackProviders: [],
     model: select("model").value.trim() || PROVIDERS[provider].defaultModel,
     fillMode: select("fillMode").value as FillMode,
     fillLanguage: select("fillLanguage").value as FillLanguagePolicy,
@@ -425,7 +400,6 @@ function collectSettings(): Partial<ExtensionSettings> {
     autoNextMaxSteps: Number(input("autoNextMaxSteps").value) || DEFAULT_SETTINGS.autoNextMaxSteps,
     fillEmptyOnly: input("fillEmptyOnly").checked,
     rememberKeyAcrossRestarts: input("rememberKey").checked,
-    fallbackProviders,
     encryptKeys: input("encryptKeys").checked,
   };
 }
@@ -608,8 +582,6 @@ el("btnClearKey").addEventListener("click", () => {
 select("provider").addEventListener("change", () => {
   void (async () => {
     const provider = currentProvider();
-    input("baseUrl").value = PROVIDERS[provider].defaultBaseUrl;
-    renderFallbackSelect(provider, []);
     await loadModels(provider, PROVIDERS[provider].defaultModel);
     updateKeyUi(provider);
     updateProviderBadge();
@@ -634,7 +606,6 @@ el("btnTestKey").addEventListener("click", () => {
         type: "TEST_API_KEY",
         provider: currentProvider(),
         apiKey: input("apiKey").value.trim() || undefined,
-        baseUrl: input("baseUrl").value.trim() || undefined,
         model: select("model").value.trim() || undefined,
       });
 

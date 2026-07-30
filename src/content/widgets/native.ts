@@ -3,6 +3,7 @@ import { resolveBooleanValue, resolveOptionValue } from "../../shared/optionMatc
 import {
   associatedLabelText,
   cleanText,
+  delay,
   fireInputAndChange,
   nextFrame,
   resolveAriaLabel,
@@ -45,14 +46,130 @@ function labelOf(el: HTMLElement): string | undefined {
   return associatedLabelText(el) || resolveAriaLabel(el) || undefined;
 }
 
+const COUNTRY_NAME_TO_CODE: Record<string, string> = {
+  "united states": "US",
+  usa: "US",
+  canada: "CA",
+  "united kingdom": "GB",
+  britain: "GB",
+  france: "FR",
+  germany: "DE",
+  deutschland: "DE",
+  japan: "JP",
+  australia: "AU",
+  india: "IN",
+  brazil: "BR",
+  bangladesh: "BD",
+};
+
+function phoneWrapperFor(control: HTMLInputElement): HTMLElement | null {
+  if (inputTypeOf(control) !== "tel") return null;
+  return (
+    control.closest<HTMLElement>(
+      ".PhoneInput, [data-phone-input], [class*='phone-input' i], [class*='PhoneInput']",
+    ) ?? null
+  );
+}
+
+/**
+ * Detects the selected country in react-phone-number-input and similar Shadcn
+ * wrappers. The stock component exposes a `.PhoneInputCountrySelect`; custom
+ * variants commonly expose data-country, an aria-label, title, or flag alt.
+ */
+function phoneCountryFor(control: HTMLInputElement): string | undefined {
+  if (inputTypeOf(control) !== "tel") return undefined;
+
+  const wrapper = phoneWrapperFor(control) ?? control.parentElement;
+  if (!wrapper) return undefined;
+
+  const candidates = Array.from(
+    wrapper.querySelectorAll<HTMLElement>(
+      ".PhoneInputCountrySelect, select, [data-country], [data-country-code], button, img[alt], svg title",
+    ),
+  );
+
+  for (const candidate of candidates) {
+    const rawValues = [
+      candidate instanceof HTMLSelectElement ? candidate.value : "",
+      candidate instanceof HTMLSelectElement
+        ? candidate.selectedOptions.item(0)?.textContent
+        : "",
+      candidate.getAttribute("data-country"),
+      candidate.getAttribute("data-country-code"),
+      candidate.getAttribute("aria-label"),
+      candidate.getAttribute("title"),
+      candidate.getAttribute("alt"),
+      candidate.tagName.toLowerCase() === "title" ? candidate.textContent : "",
+    ].filter((value): value is string => !!value);
+
+    for (const raw of rawValues) {
+      const trimmed = cleanText(raw);
+      const direct = trimmed.match(/(?:^|\b)([a-z]{2})(?:\b|$)/i);
+      if (direct) return direct[1].toUpperCase();
+      const byName = COUNTRY_NAME_TO_CODE[trimmed.toLowerCase()];
+      if (byName) return byName;
+    }
+  }
+
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Text-like inputs and textareas
 // ---------------------------------------------------------------------------
+
+/**
+ * react-phone-number-input parses and formats on every input event. Supplying
+ * the entire E.164 string in one assignment can be treated as a stale controlled
+ * value by React. Typing progressively follows the component's real contract.
+ */
+async function applyCompositePhone(el: HTMLInputElement, value: string): Promise<ApplyReport> {
+  el.focus({ preventScroll: true });
+  el.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+
+  setNativeValue(el, "");
+  fireInputAndChange(el);
+  await delay(0);
+
+  for (const char of value) {
+    const next = `${el.value}${char}`;
+    setNativeValue(el, next);
+    el.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        cancelable: true,
+        data: char,
+        inputType: "insertText",
+      }),
+    );
+    // Let React commit the formatted value before appending the next digit.
+    await delay(0);
+  }
+
+  el.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+  el.dispatchEvent(new FocusEvent("blur"));
+  el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+  await nextFrame();
+  await nextFrame();
+
+  if (!el.value) return { success: false, reason: "the phone widget reverted the value" };
+  if (el.getAttribute("aria-invalid") === "true" || !el.checkValidity()) {
+    return {
+      success: false,
+      reason: el.validationMessage || "the phone widget rejected this number",
+    };
+  }
+  return { success: true, appliedValue: el.value };
+}
 
 async function applyTextLike(
   el: HTMLInputElement | HTMLTextAreaElement,
   value: string,
 ): Promise<ApplyReport> {
+  if (el instanceof HTMLInputElement && phoneWrapperFor(el)) {
+    return applyCompositePhone(el, value);
+  }
+
   el.focus({ preventScroll: true });
   el.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
 
@@ -62,9 +179,24 @@ async function applyTextLike(
   el.dispatchEvent(new FocusEvent("blur"));
   el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
   await nextFrame();
+  // Controlled phone widgets often validate in an effect after the first
+  // render. Wait one more frame before deciding that the value stuck.
+  if (el instanceof HTMLInputElement && inputTypeOf(el) === "tel") {
+    await nextFrame();
+  }
 
   if (el.value === "" && value !== "") {
     return { success: false, reason: "the page reverted the value" };
+  }
+  if (
+    el instanceof HTMLInputElement &&
+    inputTypeOf(el) === "tel" &&
+    (el.getAttribute("aria-invalid") === "true" || !el.checkValidity())
+  ) {
+    return {
+      success: false,
+      reason: el.validationMessage || "the phone widget rejected this number",
+    };
   }
   return { success: true, appliedValue: el.value };
 }
@@ -110,6 +242,10 @@ export const nativeTextAdapter: WidgetAdapter = {
         step: !isTextarea ? (control as HTMLInputElement).step || undefined : undefined,
         inputMode: control.getAttribute("inputmode") || undefined,
         autoComplete: control.autocomplete || undefined,
+        phoneCountry:
+          !isTextarea && type === "tel"
+            ? phoneCountryFor(control as HTMLInputElement)
+            : undefined,
         labelText: labelText ?? common.labelText,
         required: control.required || common.required,
         currentValue: control.value,

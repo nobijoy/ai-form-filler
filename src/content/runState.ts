@@ -14,16 +14,18 @@ function createVariationSeed(): string {
 const IDENTITY_SLOTS: Array<{ slot: string; autoComplete?: RegExp; label?: RegExp }> = [
   { slot: "email", autoComplete: /^email$/, label: /e-?mail|courriel|メール|이메일|correo/i },
   { slot: "firstName", autoComplete: /^given-name$/, label: /first.?name|given.?name|prénom|prenom|名|이름/i },
+  { slot: "middleName", autoComplete: /^additional-name$/, label: /middle.?name|additional.?name|second.?name/i },
   { slot: "lastName", autoComplete: /^family-name$/, label: /last.?name|family.?name|surname|nom de famille|姓|성/i },
   { slot: "fullName", autoComplete: /^name$/, label: /full.?name|your name|氏名|お名前|성명/i },
   { slot: "phone", autoComplete: /^tel/, label: /phone|mobile|tel|téléphone|telephone|電話|전화/i },
   { slot: "username", autoComplete: /^username$/, label: /user.?name|login|ユーザー名/i },
   { slot: "password", autoComplete: /^(new|current)-password$/, label: /password|mot de passe|パスワード|비밀번호/i },
-  { slot: "street", autoComplete: /^(street-address|address-line1)$/, label: /street|address.?line.?1|adresse|番地/i },
-  { slot: "city", autoComplete: /^address-level2$/, label: /city|town|ville|市区町村/i },
+  { slot: "street", autoComplete: /^(street-address|address-line1)$/, label: /street|address.?line.?1|adresse|住所/i },
+  { slot: "city", autoComplete: /^address-level2$/, label: /city|town|ville|stadt|市区町村/i },
   { slot: "postalCode", autoComplete: /^postal-code$/, label: /zip|postal|code postal|郵便番号/i },
   { slot: "country", autoComplete: /^country(-name)?$/, label: /country|pays|国/i },
   { slot: "company", autoComplete: /^organization$/, label: /company|organi[sz]ation|employer|会社|企業/i },
+  { slot: "dateOfBirth", autoComplete: /^bday$/, label: /date.?of.?birth|birth.?date|\bdob\b|birthday|geburtsdatum/i },
 ];
 
 function detectIdentitySlot(field: FieldDescriptor): string | null {
@@ -129,6 +131,25 @@ export class RunState {
 
   isCurrentEpoch(): boolean {
     return this.stepEpoch === currentEpoch();
+  }
+
+  /**
+   * Installs the deterministic persona for this run before any field is filled.
+   * Existing identity keys win so a resumed checkpoint is not overwritten.
+   */
+  seedPersona(identity: Record<string, string>, sketch?: Record<string, string>): void {
+    for (const [slot, value] of Object.entries(identity)) {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      if (!this.context.identity[slot]) this.context.identity[slot] = trimmed;
+    }
+    if (!sketch) return;
+    for (const [key, value] of Object.entries(sketch)) {
+      const trimmed = value.trim();
+      if (!trimmed || trimmed.length > 200) continue;
+      const factKey = `persona.${key}`.slice(0, 40);
+      if (!this.context.facts[factKey]) this.context.facts[factKey] = trimmed;
+    }
   }
 
   mergeFacts(facts: Record<string, unknown> | undefined): void {

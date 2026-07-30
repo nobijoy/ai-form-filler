@@ -256,6 +256,9 @@ export function scanFormFields(): ScanResult {
 
   for (const el of Array.from(document.querySelectorAll<HTMLElement>(WIDGET_SELECTOR))) {
     if (consumed.has(el)) continue;
+    // File inputs require a user-selected local file and must never be described
+    // to the model, written, or counted as unresolved.
+    if (el instanceof HTMLInputElement && el.type.toLowerCase() === "file") continue;
 
     const adapter = adapterFor(el);
     if (!adapter) continue;

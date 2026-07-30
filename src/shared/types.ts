@@ -96,6 +96,8 @@ export interface FieldDescriptor {
   step?: string;
   inputMode?: string;
   autoComplete?: string;
+  /** ISO 3166-1 alpha-2 country selected by a composite phone widget. */
+  phoneCountry?: string;
   ariaLabel?: string;
   labelText?: string;
   formPurpose?: string;

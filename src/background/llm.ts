@@ -151,6 +151,8 @@ interface CompactField {
   min?: string;
   max?: string;
   lang?: string;
+  /** ISO country selected by a composite phone input. */
+  country?: string;
   /** The field's own help text, which usually states the required format. */
   help?: string;
   hint?: string;
@@ -177,6 +179,7 @@ function compactField(field: FieldDescriptor): CompactField {
   if (field.min) compact.min = field.min;
   if (field.max) compact.max = field.max;
   if (field.fieldLocale) compact.lang = field.fieldLocale;
+  if (field.phoneCountry) compact.country = field.phoneCountry;
   if (field.controllingCheckboxSid) compact.requiresChecked = field.controllingCheckboxSid;
   if (field.currentValue) compact.current = field.currentValue.slice(0, 60);
 
@@ -199,13 +202,24 @@ function compactField(field: FieldDescriptor): CompactField {
 
 function encodeRunContext(context: RunContext | undefined): unknown {
   if (!context) return undefined;
-  const hasFacts = Object.keys(context.facts).length > 0;
   const hasIdentity = Object.keys(context.identity).length > 0;
   const hasSummaries = context.stepSummaries.length > 0;
+  const sequenceMatch = /^v(\d+)-/.exec(context.variationSeed);
+  const variationIndex = sequenceMatch ? Number(sequenceMatch[1]) : undefined;
+
+  const persona: Record<string, string> = {};
+  const otherFacts: Record<string, string> = {};
+  for (const [key, value] of Object.entries(context.facts)) {
+    if (key.startsWith("persona.")) persona[key.slice("persona.".length)] = value;
+    else otherFacts[key] = value;
+  }
 
   return {
     variationSeed: context.variationSeed,
-    facts: hasFacts ? context.facts : undefined,
+    variationIndex,
+    // Concrete person for this run. The model must reuse these identity fields.
+    persona: Object.keys(persona).length > 0 ? persona : undefined,
+    facts: Object.keys(otherFacts).length > 0 ? otherFacts : undefined,
     // Reusing these keeps "confirm email" style fields consistent across steps.
     alreadyUsed: hasIdentity ? context.identity : undefined,
     previousSteps: hasSummaries ? context.stepSummaries.slice(-6) : undefined,
@@ -255,17 +269,23 @@ function systemPrompt(settings: ExtensionSettings, snapshot: FillSnapshot): stri
     `Rules:`,
     `- Respect required, type, maxLen, min and max.`,
     `- "pattern" is a JavaScript regular expression the value must match in full. "help" is the field's own instruction text. When either states a format, follow it literally, including separators: for pattern "0\\d{2}-\\d{4}-\\d{4}" answer "090-1234-5678", not "+81 90 1234 5678".`,
+    `- For telephone fields with "country", return a genuinely valid test number for that ISO country in international E.164 form (for example +12025550123 for US). Do not use fictional +1555 numbers; phone validation libraries reject many of them.`,
     `- For select, radio and combobox fields answer with one of the given options: either its value or its visible label, copied exactly.`,
     `- For checkbox and switch fields answer only "true" or "false". Omit the ones you leave unchecked.`,
     `- Fields sharing a "group" form one multi-select. Choose the combination a real user would pick; honour "maxSelections" when present.`,
     `- A field with "requiresChecked" only applies when that checkbox is set to true. Otherwise omit it.`,
     `- Never echo a field's placeholder or label back as its value.`,
     `- Data must be plausible but obviously synthetic, e.g. emails at example.com.`,
-    `- This run has a context.variationSeed. Use it as inspiration to produce a fresh synthetic person and choices. Different seeds must not repeatedly produce the same default names, dates, addresses, employers or prose.`,
-    `- Keep values internally consistent within this run by reusing context.alreadyUsed; variation is between runs, not between fields that describe the same person.`,
+    `- RUN-TO-RUN DIVERSITY IS A PRIMARY TEST REQUIREMENT. For unconstrained values, dates, prose, occupations, organizations and preferences, derive a different result from context.variationIndex instead of repeatedly choosing your usual default.`,
+    `- context.persona (and context.alreadyUsed) is the synthetic person for THIS run. Copy those values into matching fields (names, email, phone, address, DOB, username, website). Do not invent a different person.`,
+    `- Do not fall back to stock demo names such as Julian, John Doe, Jane Doe, Alex Smith, or Elena Schulz unless context.persona literally contains them.`,
+    `- Derive related values from that persona (work email from the name, security answer from the city, biography that matches). Vary employer, salary, certifications and technical preferences between runs.`,
+    `- For select/radio choices, use context.variationIndex to rotate among plausible options instead of always choosing the first or most common option.`,
+    `- For checkbox groups, vary both the selected combination and, when plausible, the number selected. Use option order plus context.variationIndex so adjacent runs do not receive the same set.`,
+    `- Keep values internally consistent within this run; variation is between runs, not between fields that describe the same person.`,
     `- Reuse values from context.alreadyUsed when a field asks for the same information again.`,
     `- When "corrections" is present the page rejected your previous answer: read the message and return a value that satisfies it.`,
-    `- Fill every required field, plus optional fields a real user would reasonably complete.`,
+    `- Fill every required field, plus optional fields a real user would reasonably complete. Prefer a plausible value over leaving an optional field blank (e.g. best contact time).`,
     `- You may add a "_ctx" object of short facts about this form worth remembering for later steps.`,
     ``,
     languageDirective(settings, snapshot),
