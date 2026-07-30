@@ -43,9 +43,9 @@ export interface ExtensionSettings {
 }
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
-  provider: "groq",
-  baseUrl: "https://api.groq.com/openai/v1",
-  model: "llama-3.3-70b-versatile",
+  provider: "openai",
+  baseUrl: "https://api.openai.com/v1",
+  model: "gpt-4o-mini",
   fillMode: "hybrid",
   fillLanguage: "auto",
   fillLocaleOverride: "",
