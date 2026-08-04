@@ -128,6 +128,8 @@ function digitRunLengths(value: string): number[] {
  * and guessing would produce a value the page accepts but a human would not.
  */
 export function coerceToPattern(value: string, pattern: string): string | null {
+  if (pattern.length > 200) return null;
+
   let anchored: RegExp;
   try {
     anchored = new RegExp(`^(?:${pattern})$`);

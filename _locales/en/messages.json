@@ -159,6 +159,22 @@
     "message": "Fill empty fields only",
     "description": "Skip fields that already have a value"
   },
+  "warnFillEmptyOnly": {
+    "message": "Warning: existing field values (up to 60 characters) may be sent to the LLM, including autofilled personal data.",
+    "description": "Shown when fill-empty-only is off"
+  },
+  "labelExcludeSensitive": {
+    "message": "Skip password and payment fields",
+    "description": "Excludes sensitive fields from fill and LLM payloads"
+  },
+  "hintExcludeSensitive": {
+    "message": "When on, password and card fields are never filled and never sent to the AI.",
+    "description": "Help under sensitive-field toggle"
+  },
+  "passphraseConfirmPlaceholder": {
+    "message": "Confirm passphrase",
+    "description": "Placeholder for passphrase confirmation"
+  },
 
   "btnSave": {
     "message": "Save settings",

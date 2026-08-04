@@ -227,10 +227,23 @@ export async function runFillOrchestration(
 
   let stepsCompleted = resume?.stepsCompleted ?? 0;
   let fieldsFilled = resume?.fieldsFilled ?? 0;
+  let providerRequestsThisRun = 0;
   /** Set when the run ended early in a way the user should know about. */
   let stopReason: string | null = null;
   /** Set when the run ended cleanly at the end of the form. */
   let finishedNote: string | null = null;
+
+  const trackUsage = (response: LlmFillResponse | { httpCallsUsed?: number }): void => {
+    const used = response.httpCallsUsed ?? 0;
+    if (used <= 0) return;
+    providerRequestsThisRun += used;
+    onStatus?.(
+      `Provider requests this run: ${providerRequestsThisRun}` +
+        (typeof (response as LlmFillResponse).promptChars === "number"
+          ? ` (~${(response as LlmFillResponse).promptChars} prompt chars)`
+          : ""),
+    );
+  };
 
   if (resume) {
     onStatus?.(
@@ -242,9 +255,18 @@ export async function runFillOrchestration(
   }
 
   const persistBeforeNavigation = async (nextStep: number): Promise<void> => {
+    let tabId: number | undefined;
+    try {
+      const res = await sendMessage<{ tabId?: number }>({ type: "GET_OWN_TAB_ID" });
+      tabId = res.tabId;
+    } catch {
+      // Resume matching will fail closed without a tab id.
+    }
+
     const checkpoint: FillCheckpoint = {
       version: 1,
       formKey: formKeyFromLocation(),
+      tabId,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       nextStep,
@@ -259,7 +281,6 @@ export async function runFillOrchestration(
         stepSummaries: [...state.context.stepSummaries],
       },
     };
-    // Preserve original createdAt if we can - actually simpler to just use Date.now for both
     await saveCheckpoint(checkpoint);
   };
 
@@ -273,6 +294,7 @@ export async function runFillOrchestration(
         docLocale,
         onStatus,
         report,
+        onUsage: trackUsage,
       });
 
       fieldsFilled += outcome.filledCount;
@@ -354,6 +376,7 @@ export async function runFillOrchestration(
             stepNumber: step,
             issues: repairableIssues,
             onStatus,
+            onUsage: trackUsage,
           });
           fieldsFilled += repaired;
 
@@ -448,6 +471,7 @@ interface StepParams {
   docLocale: string;
   onStatus?: (message: string) => void;
   report: (message: string) => void;
+  onUsage?: (response: LlmFillResponse) => void;
 }
 
 interface StepOutcome {
@@ -480,7 +504,7 @@ async function runSingleStep(params: StepParams): Promise<StepOutcome> {
   }
 
   if (candidates.length === 0) {
-    const visible = visibleFillableFields(scan.fields);
+    const visible = visibleFillableFields(scan.fields, settings);
     if (visible.length === 0) {
       onStatus?.(`Step ${stepNumber}: no fillable fields on this step.`);
     } else {
@@ -565,6 +589,7 @@ async function runSingleStep(params: StepParams): Promise<StepOutcome> {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+    params.onUsage?.(response);
 
     if (!response.ok) {
       const message = response.error ?? "The AI request failed.";
@@ -708,6 +733,7 @@ interface RepairParams {
   stepNumber: number;
   issues: ValidationIssue[];
   onStatus?: (message: string) => void;
+  onUsage?: (response: LlmFillResponse) => void;
 }
 
 /**
@@ -721,7 +747,7 @@ async function runRepairPass(params: RepairParams): Promise<number> {
 
   const fields = scan.fields.filter(
     (field) =>
-      isFillableField(field) &&
+      isFillableField(field, { excludeSensitive: settings.excludeSensitiveFields === true }) &&
       (flaggedSids.has(field.syntheticId) || field.ariaInvalid || !!field.validationMessage),
   );
 
@@ -749,6 +775,7 @@ async function runRepairPass(params: RepairParams): Promise<number> {
   } catch {
     return 0;
   }
+  params.onUsage?.(response);
 
   if (!response.ok || !response.values) return 0;
 

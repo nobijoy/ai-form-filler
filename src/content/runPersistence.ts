@@ -36,6 +36,8 @@ export interface FillCheckpoint {
   version: 1;
   /** Same-document identity: origin + pathname, ignoring query/hash. */
   formKey: string;
+  /** Tab that started the run; resume only continues on this tab. */
+  tabId?: number;
   createdAt: number;
   updatedAt: number;
   nextStep: number;
@@ -85,8 +87,15 @@ export async function clearCheckpoint(): Promise<void> {
   }
 }
 
-export function checkpointMatchesPage(checkpoint: FillCheckpoint): boolean {
-  return checkpoint.formKey === formKeyFromLocation();
+export function checkpointMatchesPage(
+  checkpoint: FillCheckpoint,
+  tabId?: number,
+): boolean {
+  if (checkpoint.formKey !== formKeyFromLocation()) return false;
+  // Older checkpoints without tabId are not auto-resumed (safer boundary).
+  if (typeof checkpoint.tabId !== "number") return false;
+  if (typeof tabId === "number" && checkpoint.tabId !== tabId) return false;
+  return true;
 }
 
 export async function publishRunComplete(result: FillRunResult): Promise<void> {

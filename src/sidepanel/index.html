@@ -81,6 +81,13 @@
             autocomplete="off"
             placeholder="Vault passphrase"
           />
+          <input
+            id="passphraseConfirm"
+            type="password"
+            class="inp grow"
+            autocomplete="off"
+            placeholder="Confirm passphrase"
+          />
           <button type="button" id="btnUnlock" class="btn"></button>
           <button type="button" id="btnLock" class="btn hidden"></button>
         </div>
@@ -135,6 +142,13 @@
           <input type="checkbox" id="fillEmptyOnly" />
           <span id="lblFillEmpty"></span>
         </label>
+        <p class="subhint warn hidden" id="fillEmptyOnlyWarn"></p>
+
+        <label class="chk">
+          <input type="checkbox" id="excludeSensitive" />
+          <span id="lblExcludeSensitive"></span>
+        </label>
+        <p class="subhint" id="hintExcludeSensitive"></p>
       </details>
 
       <button type="button" id="btnSave" class="btn primary block"></button>

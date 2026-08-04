@@ -50,12 +50,18 @@ const FALLBACKS: Record<string, string> = {
   labelMaxRounds: "Maximum rounds per step",
   labelSettleMs: "Settle delay (ms)",
   labelFillEmptyOnly: "Fill empty fields only",
+  warnFillEmptyOnly:
+    "Warning: existing field values (up to 60 characters) may be sent to the LLM, including autofilled personal data.",
+  labelExcludeSensitive: "Skip password and payment fields",
+  hintExcludeSensitive:
+    "When on, password and card fields are never filled and never sent to the AI.",
   btnSave: "Save settings",
   statusIdle: "Ready.",
   statusNoTab: "No active tab.",
   keyHint:
     "Keys are stored by the extension and read only by its background worker. They are never exposed to web pages.",
   errGeneric: "Something went wrong.",
+  passphraseConfirmPlaceholder: "Confirm passphrase",
 };
 
 function t(id: string): string {
@@ -92,6 +98,20 @@ function setStatus(text: string, tone: "idle" | "ok" | "err" = "idle"): void {
   node.textContent = text;
   node.classList.toggle("err", tone === "err");
   node.classList.toggle("ok", tone === "ok");
+}
+
+function setKeyStatus(text: string, tone: "idle" | "ok" | "err" = "idle"): void {
+  const node = el("keyStatus");
+  node.textContent = text;
+  node.className =
+    tone === "ok" ? "subhint key-ok" : tone === "err" ? "subhint key-err" : "subhint";
+}
+
+function setVaultStatus(text: string, tone: "idle" | "ok" | "err" = "idle"): void {
+  const node = el("vaultStatus");
+  node.textContent = text;
+  node.className =
+    tone === "ok" ? "subhint key-ok" : tone === "err" ? "subhint key-err" : "subhint";
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +230,9 @@ function applyI18n(): void {
     ["lblMaxRounds", "labelMaxRounds"],
     ["lblSettle", "labelSettleMs"],
     ["lblFillEmpty", "labelFillEmptyOnly"],
+    ["fillEmptyOnlyWarn", "warnFillEmptyOnly"],
+    ["lblExcludeSensitive", "labelExcludeSensitive"],
+    ["hintExcludeSensitive", "hintExcludeSensitive"],
     ["btnSave", "btnSave"],
     ["keyHint", "keyHint"],
   ];
@@ -217,6 +240,7 @@ function applyI18n(): void {
   for (const [nodeId, messageId] of text) el(nodeId).textContent = t(messageId);
 
   textarea("customRequest").placeholder = t("placeholderCustomRequest");
+  input("passphraseConfirm").placeholder = t("passphraseConfirmPlaceholder");
   el<HTMLOListElement>("log").dataset.empty = t("logEmpty");
   input("autoNextMaxSteps").max = String(MAX_FORM_STEPS);
 }
@@ -276,6 +300,19 @@ async function loadModels(provider: LlmProviderId, preferredModel: string): Prom
   node.disabled = true;
   el("modelHint").textContent = "Loading models…";
 
+  const hasKey = keyPresence[provider] === true;
+
+  // Do not show the curated fallback catalog before a key exists — that list
+  // looks like live models and is easy to save as a permanent selection.
+  if (!hasKey) {
+    if (requestId !== modelRequestId || provider !== currentProvider()) return;
+    modelOptions = [];
+    renderModelSelect(preferredModel);
+    node.disabled = true;
+    el("modelHint").textContent = "Save an API key to load available models.";
+    return;
+  }
+
   let response: { models: ModelOption[]; fromFallback: boolean } | undefined;
   try {
     response = await sendMessage({
@@ -298,7 +335,7 @@ async function loadModels(provider: LlmProviderId, preferredModel: string): Prom
   renderModelSelect(preferredModel);
   el("modelHint").textContent =
     !response || response.fromFallback
-      ? "Showing the built-in list. Save a valid key to load the live one."
+      ? "Showing the built-in list (live catalog unavailable)."
       : `${modelOptions.length} model(s) available.`;
 }
 
@@ -352,6 +389,8 @@ function updateVaultUi(): void {
   const showVault = enabled || encryptedExists || vaultUnlocked;
   el("vaultRow").classList.toggle("hidden", !showVault);
   input("passphrase").classList.toggle("hidden", vaultUnlocked);
+  // Confirm is only needed when creating/unlocking with a new passphrase entry.
+  input("passphraseConfirm").classList.toggle("hidden", vaultUnlocked);
   el("btnUnlock").classList.toggle("hidden", vaultUnlocked);
   el("btnLock").classList.toggle("hidden", !vaultUnlocked);
 
@@ -368,7 +407,8 @@ function updateVaultUi(): void {
       ? "Vault unlocked. New and existing keys will be encrypted."
       : "Vault unlocked. Save settings to decrypt stored keys.";
   } else if (enabled && !encryptedExists) {
-    status.textContent = "Enter a passphrase and unlock the vault before saving encrypted keys.";
+    status.textContent =
+      "Enter a passphrase (min 8 characters), confirm it, then unlock before saving encrypted keys.";
   } else if (!enabled && encryptedExists) {
     status.textContent = "Unlock the vault before turning encryption off.";
   } else {
@@ -376,6 +416,10 @@ function updateVaultUi(): void {
   }
   status.className = vaultUnlocked ? "subhint key-ok" : "subhint key-err";
   updateKeyControls();
+}
+
+function updateFillEmptyWarning(): void {
+  el("fillEmptyOnlyWarn").classList.toggle("hidden", input("fillEmptyOnly").checked);
 }
 
 function updateLanguageUi(): void {
@@ -418,6 +462,7 @@ async function load(resetStatus = true): Promise<void> {
   input("maxRounds").value = String(settings.maxRounds);
   input("settleMs").value = String(settings.settleMs);
   input("fillEmptyOnly").checked = settings.fillEmptyOnly;
+  input("excludeSensitive").checked = settings.excludeSensitiveFields;
   input("rememberKey").checked = settings.rememberKeyAcrossRestarts;
   input("encryptKeys").checked = settings.encryptKeys;
   input("apiKey").value = "";
@@ -429,6 +474,7 @@ async function load(resetStatus = true): Promise<void> {
   updateKeyUi(settings.provider);
   updateVaultUi();
   updateLanguageUi();
+  updateFillEmptyWarning();
   updateProviderBadge();
   if (resetStatus) setStatus(t("statusIdle"));
 }
@@ -451,6 +497,7 @@ function collectSettings(): Partial<ExtensionSettings> {
     autoNextEnabled: input("autoNextEnabled").checked,
     autoNextMaxSteps: Number(input("autoNextMaxSteps").value) || DEFAULT_SETTINGS.autoNextMaxSteps,
     fillEmptyOnly: input("fillEmptyOnly").checked,
+    excludeSensitiveFields: input("excludeSensitive").checked,
     rememberKeyAcrossRestarts: input("rememberKey").checked,
     encryptKeys: input("encryptKeys").checked,
   };
@@ -467,7 +514,13 @@ async function onSave(): Promise<void> {
       settings: collectSettings(),
     });
     if (!result.ok) {
-      setStatus(result.error ?? t("errGeneric"), "err");
+      const message = result.error ?? t("errGeneric");
+      if (/vault|passphrase|encrypt/i.test(message)) {
+        setVaultStatus(message, "err");
+        el<HTMLDetailsElement>("connectionCard").open = true;
+      } else {
+        setStatus(message, "err");
+      }
       return;
     }
 
@@ -485,8 +538,7 @@ async function onSaveKey(): Promise<void> {
   const provider = currentProvider();
   const key = input("apiKey").value.trim();
   if (!key) {
-    el("keyStatus").textContent = "Enter an API key first.";
-    el("keyStatus").className = "subhint key-err";
+    setKeyStatus("Enter an API key first.", "err");
     return;
   }
 
@@ -502,7 +554,9 @@ async function onSaveKey(): Promise<void> {
       settings: collectSettings(),
     });
     if (!settingsResult.ok) {
-      setStatus(settingsResult.error ?? t("errGeneric"), "err");
+      const message = settingsResult.error ?? t("errGeneric");
+      if (/vault|passphrase|encrypt/i.test(message)) setVaultStatus(message, "err");
+      else setKeyStatus(message, "err");
       return;
     }
 
@@ -513,14 +567,14 @@ async function onSaveKey(): Promise<void> {
       rememberAcrossRestarts: input("rememberKey").checked,
     });
     if (!result.ok) {
-      setStatus(result.error ?? "Could not save the API key.", "err");
+      setKeyStatus(result.error ?? "Could not save the API key.", "err");
       return;
     }
 
     await load(false);
-    setStatus(`${PROVIDERS[provider].label} key saved.`, "ok");
+    setKeyStatus(`${PROVIDERS[provider].label} key saved.`, "ok");
   } catch (error) {
-    setStatus(error instanceof Error ? error.message : "Could not save the API key.", "err");
+    setKeyStatus(error instanceof Error ? error.message : "Could not save the API key.", "err");
   } finally {
     button.disabled = false;
     updateKeyControls();
@@ -677,7 +731,7 @@ el("btnClearKey").addEventListener("click", () => {
         provider,
       });
       if (!result.ok) {
-        setStatus(result.error ?? "Could not remove the API key.", "err");
+        setKeyStatus(result.error ?? "Could not remove the API key.", "err");
         return;
       }
       keyPresence[provider] = false;
@@ -685,9 +739,10 @@ el("btnClearKey").addEventListener("click", () => {
       input("apiKey").value = "";
       updateKeyUi(provider);
       updateVaultUi();
-      setStatus(`${PROVIDERS[provider].label} key removed.`, "ok");
+      await loadModels(provider, PROVIDERS[provider].defaultModel);
+      setKeyStatus(`${PROVIDERS[provider].label} key removed.`, "ok");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not remove the API key.", "err");
+      setKeyStatus(error instanceof Error ? error.message : "Could not remove the API key.", "err");
     } finally {
       updateKeyControls();
     }
@@ -712,6 +767,7 @@ select("provider").addEventListener("change", () => {
 select("model").addEventListener("change", updateProviderBadge);
 select("fillLanguage").addEventListener("change", updateLanguageUi);
 input("encryptKeys").addEventListener("change", updateVaultUi);
+input("fillEmptyOnly").addEventListener("change", updateFillEmptyWarning);
 input("apiKey").addEventListener("input", () => {
   updateKeyControls();
   if (!input("apiKey").value.trim()) {
@@ -770,9 +826,18 @@ el("btnTestKey").addEventListener("click", () => {
 el("btnUnlock").addEventListener("click", () => {
   void (async () => {
     const passphrase = input("passphrase").value;
+    const confirm = input("passphraseConfirm").value;
     const desiredEncryption = input("encryptKeys").checked;
     if (!passphrase) {
-      setStatus("Enter a passphrase first.", "err");
+      setVaultStatus("Enter a passphrase first.", "err");
+      return;
+    }
+    if (passphrase.trim().length < 8) {
+      setVaultStatus("Passphrase must be at least 8 characters.", "err");
+      return;
+    }
+    if (passphrase !== confirm) {
+      setVaultStatus("Passphrase and confirmation do not match.", "err");
       return;
     }
     const result = await sendMessage<{ ok: boolean; error?: string }>({
@@ -780,8 +845,9 @@ el("btnUnlock").addEventListener("click", () => {
       passphrase,
     });
     input("passphrase").value = "";
+    input("passphraseConfirm").value = "";
     if (!result.ok) {
-      setStatus(result.error ?? "Could not unlock the vault.", "err");
+      setVaultStatus(result.error ?? "Could not unlock the vault.", "err");
       return;
     }
     vaultUnlocked = true;
@@ -791,7 +857,7 @@ el("btnUnlock").addEventListener("click", () => {
     updateVaultUi();
     updateKeyUi(currentProvider());
     await loadModels(currentProvider(), select("model").value);
-    setStatus("Vault unlocked for this browser session.", "ok");
+    setVaultStatus("Vault unlocked for this browser session.", "ok");
   })();
 });
 
@@ -802,9 +868,9 @@ el("btnLock").addEventListener("click", () => {
       vaultUnlocked = false;
       updateVaultUi();
       updateKeyUi(currentProvider());
-      setStatus("Vault locked.", "ok");
+      setVaultStatus("Vault locked.", "ok");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not lock the vault.", "err");
+      setVaultStatus(error instanceof Error ? error.message : "Could not lock the vault.", "err");
     }
   })();
 });

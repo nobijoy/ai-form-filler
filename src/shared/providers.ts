@@ -158,6 +158,28 @@ export function isProviderId(value: unknown): value is LlmProviderId {
   return typeof value === "string" && value in PROVIDERS;
 }
 
+/**
+ * True when `baseUrl` targets the same origin as the provider's default endpoint.
+ * Host wildcards in the manifest allow page injection; this pin stops API keys
+ * from being sent to an attacker-controlled base URL.
+ */
+export function isAllowedBaseUrl(provider: ProviderDefinition, baseUrl: string): boolean {
+  try {
+    const candidate = new URL(baseUrl);
+    const expected = new URL(provider.defaultBaseUrl);
+    return candidate.origin === expected.origin;
+  } catch {
+    return false;
+  }
+}
+
+/** Returns a provider-safe base URL, falling back to the catalog default. */
+export function resolveProviderBaseUrl(provider: ProviderDefinition, baseUrl: string): string {
+  const trimmed = baseUrl.trim();
+  if (trimmed && isAllowedBaseUrl(provider, trimmed)) return trimmed.replace(/\/+$/, "");
+  return provider.defaultBaseUrl.replace(/\/+$/, "");
+}
+
 // ---------------------------------------------------------------------------
 // Request shaping
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { PROVIDER_IDS, isProviderId } from "../shared/providers";
+import { PROVIDER_IDS, isProviderId, isAllowedBaseUrl, PROVIDERS } from "../shared/providers";
 import {
   DEFAULT_SETTINGS,
   MAX_FORM_STEPS,
@@ -13,9 +13,12 @@ const KEYS_PERSISTENT = "aff_apiKeysByProvider";
 /**
  * Keys for this browser session only. Stored in `local` rather than `session`
  * because `chrome.storage.session` is wiped on every extension reload, which
- * would discard the key on each dev rebuild. Cleared explicitly on browser start.
+ * would discard the key on each dev rebuild. Bound to a session stamp so a
+ * crash, disable/re-enable, or missed `onStartup` still invalidates them.
  */
 const KEYS_EPHEMERAL = "aff_apiKeysByProviderEphemeral";
+const KEYS_EPHEMERAL_SESSION = "aff_ephemeralSessionId";
+const BROWSER_SESSION_ID_KEY = "aff_browserSessionId";
 
 /** Legacy single-key entries, migrated on first read. */
 const LEGACY_KEYS = ["aff_apiKey", "aff_apiKeyEphemeral"] as const;
@@ -30,9 +33,19 @@ export function normalizeApiKey(key: string): string {
     .trim();
 }
 
-/** Called from `onStartup`: drops keys the user asked not to persist. */
+async function getOrCreateBrowserSessionId(): Promise<string> {
+  const stored = await chrome.storage.session.get(BROWSER_SESSION_ID_KEY);
+  const existing = stored[BROWSER_SESSION_ID_KEY];
+  if (typeof existing === "string" && existing.length > 0) return existing;
+
+  const id = crypto.randomUUID();
+  await chrome.storage.session.set({ [BROWSER_SESSION_ID_KEY]: id });
+  return id;
+}
+
+/** Called from `onStartup` / `onInstalled`: drops keys the user asked not to persist. */
 export async function clearEphemeralBrowserSessionKey(): Promise<void> {
-  await chrome.storage.local.remove([KEYS_EPHEMERAL, ...LEGACY_KEYS]);
+  await chrome.storage.local.remove([KEYS_EPHEMERAL, KEYS_EPHEMERAL_SESSION, ...LEGACY_KEYS]);
 }
 
 // ---------------------------------------------------------------------------
@@ -56,10 +69,16 @@ function sanitizeSettings(stored: Partial<ExtensionSettings> | undefined): Exten
       )
     : [];
 
+  const rawBaseUrl = (merged.baseUrl ?? "").trim();
+  const baseUrl =
+    rawBaseUrl && isAllowedBaseUrl(PROVIDERS[provider], rawBaseUrl)
+      ? rawBaseUrl
+      : PROVIDERS[provider].defaultBaseUrl;
+
   return {
     ...merged,
     provider,
-    baseUrl: (merged.baseUrl ?? "").trim(),
+    baseUrl,
     model: (merged.model ?? "").trim(),
     fillLanguage: merged.fillLanguage === "override" ? "override" : "auto",
     fillLocaleOverride: (merged.fillLocaleOverride ?? "").trim().slice(0, 35),
@@ -74,6 +93,7 @@ function sanitizeSettings(stored: Partial<ExtensionSettings> | undefined): Exten
       DEFAULT_SETTINGS.autoNextMaxSteps,
     ),
     fillEmptyOnly: merged.fillEmptyOnly !== false,
+    excludeSensitiveFields: merged.excludeSensitiveFields === true,
     rememberKeyAcrossRestarts: merged.rememberKeyAcrossRestarts !== false,
     fallbackProviders,
     encryptKeys: merged.encryptKeys === true,
@@ -124,9 +144,24 @@ function readSecretMap(raw: unknown): SecretMap {
 }
 
 async function loadMaps(): Promise<{ persistent: SecretMap; ephemeral: SecretMap }> {
-  const bag = await chrome.storage.local.get([KEYS_PERSISTENT, KEYS_EPHEMERAL]);
+  const bag = await chrome.storage.local.get([
+    KEYS_PERSISTENT,
+    KEYS_EPHEMERAL,
+    KEYS_EPHEMERAL_SESSION,
+  ]);
+  const persistent = readSecretMap(bag[KEYS_PERSISTENT]);
+
+  const sessionId = await getOrCreateBrowserSessionId();
+  const stamped = bag[KEYS_EPHEMERAL_SESSION];
+  if (typeof stamped !== "string" || stamped !== sessionId) {
+    if (bag[KEYS_EPHEMERAL] !== undefined || stamped !== undefined) {
+      await chrome.storage.local.remove([KEYS_EPHEMERAL, KEYS_EPHEMERAL_SESSION, ...LEGACY_KEYS]);
+    }
+    return { persistent, ephemeral: {} };
+  }
+
   return {
-    persistent: readSecretMap(bag[KEYS_PERSISTENT]),
+    persistent,
     ephemeral: readSecretMap(bag[KEYS_EPHEMERAL]),
   };
 }
@@ -174,20 +209,30 @@ export async function saveApiKey(
   if (rememberAcrossRestarts) {
     delete ephemeral[provider];
     persistent[provider] = secret;
+    await chrome.storage.local.set({
+      [KEYS_PERSISTENT]: persistent,
+      [KEYS_EPHEMERAL]: ephemeral,
+    });
   } else {
     delete persistent[provider];
     ephemeral[provider] = secret;
+    const sessionId = await getOrCreateBrowserSessionId();
+    await chrome.storage.local.set({
+      [KEYS_PERSISTENT]: persistent,
+      [KEYS_EPHEMERAL]: ephemeral,
+      [KEYS_EPHEMERAL_SESSION]: sessionId,
+    });
   }
-
-  await chrome.storage.local.set({
-    [KEYS_PERSISTENT]: persistent,
-    [KEYS_EPHEMERAL]: ephemeral,
-  });
 }
 
 export async function clearApiKey(provider?: LlmProviderId): Promise<void> {
   if (!provider) {
-    await chrome.storage.local.remove([KEYS_PERSISTENT, KEYS_EPHEMERAL, ...LEGACY_KEYS]);
+    await chrome.storage.local.remove([
+      KEYS_PERSISTENT,
+      KEYS_EPHEMERAL,
+      KEYS_EPHEMERAL_SESSION,
+      ...LEGACY_KEYS,
+    ]);
     return;
   }
 
@@ -224,6 +269,7 @@ export async function reencryptStoredKeys(encrypt: boolean): Promise<void> {
   await chrome.storage.local.set({
     [KEYS_PERSISTENT]: await convert(persistent),
     [KEYS_EPHEMERAL]: await convert(ephemeral),
+    [KEYS_EPHEMERAL_SESSION]: await getOrCreateBrowserSessionId(),
   });
 }
 

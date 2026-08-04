@@ -32,6 +32,11 @@ export interface ExtensionSettings {
   autoNextEnabled: boolean;
   autoNextMaxSteps: number;
   fillEmptyOnly: boolean;
+  /**
+   * When true, password and payment (cc-*) fields are never filled and never
+   * sent to the LLM. Off by default.
+   */
+  excludeSensitiveFields: boolean;
   rememberKeyAcrossRestarts: boolean;
   /**
    * Providers to try if the selected one fails. Empty by default: form contents
@@ -55,6 +60,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   autoNextEnabled: true,
   autoNextMaxSteps: 15,
   fillEmptyOnly: true,
+  excludeSensitiveFields: false,
   rememberKeyAcrossRestarts: true,
   fallbackProviders: [],
   encryptKeys: false,
@@ -191,6 +197,12 @@ export interface LlmFillResponse {
   values?: Record<string, string>;
   error?: string;
   skipped?: boolean;
+  /** Provider HTTP calls made for this chunk. */
+  httpCallsUsed?: number;
+  /** Approximate characters sent in the prompt (usage visibility). */
+  promptChars?: number;
+  /** Approximate characters in the model reply. */
+  completionChars?: number;
 }
 
 export interface FillRunResult {
@@ -245,6 +257,9 @@ export interface LlmNavigationResponse {
   ok: boolean;
   decision?: NavigationDecision;
   error?: string;
+  httpCallsUsed?: number;
+  promptChars?: number;
+  completionChars?: number;
 }
 
 export interface ModelOption {

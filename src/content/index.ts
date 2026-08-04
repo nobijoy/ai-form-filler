@@ -47,6 +47,15 @@ declare global {
   }
 }
 
+async function getOwnTabId(): Promise<number | undefined> {
+  try {
+    const res = await sendMessage<{ tabId?: number }>({ type: "GET_OWN_TAB_ID" });
+    return res.tabId;
+  } catch {
+    return undefined;
+  }
+}
+
 async function executeFill(resume?: OrchestrationResume): Promise<FillRunResult> {
   const { settings } = await sendMessage<GetSettingsResponse>({ type: "GET_SETTINGS" });
   return runFillOrchestration(settings, reportProgress, resume);
@@ -104,7 +113,8 @@ async function maybeResumeAfterNavigation(): Promise<boolean> {
   if (window.__aiFormFillerRunInProgress__) return false;
 
   const checkpoint = await loadCheckpoint();
-  if (!checkpoint || !checkpointMatchesPage(checkpoint)) return false;
+  const tabId = await getOwnTabId();
+  if (!checkpoint || !checkpointMatchesPage(checkpoint, tabId)) return false;
 
   window.__aiFormFillerRunInProgress__ = true;
   try {
@@ -118,7 +128,9 @@ async function maybeResumeAfterNavigation(): Promise<boolean> {
 if (!window.__aiFormFillerListenerInstalled__) {
   window.__aiFormFillerListenerInstalled__ = true;
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (sender.id !== chrome.runtime.id) return false;
+
     const type = (message as { type?: string } | undefined)?.type;
 
     if (type === "PING") {
@@ -134,7 +146,8 @@ if (!window.__aiFormFillerListenerInstalled__) {
         }
 
         const checkpoint = await loadCheckpoint();
-        if (!checkpoint || !checkpointMatchesPage(checkpoint)) {
+        const tabId = await getOwnTabId();
+        if (!checkpoint || !checkpointMatchesPage(checkpoint, tabId)) {
           sendResponse({ ok: true, started: false, reason: "no-checkpoint" });
           return;
         }
@@ -174,16 +187,16 @@ if (!window.__aiFormFillerListenerInstalled__) {
           error: result.ok ? undefined : result.warnings[result.warnings.length - 1],
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        reportProgress(`Run failed: ${message}`);
+        const errMessage = error instanceof Error ? error.message : String(error);
+        reportProgress(`Run failed: ${errMessage}`);
         const result: FillRunResult = {
           ok: false,
-          warnings: [message],
+          warnings: [errMessage],
           stepsCompleted: 0,
           fieldsFilled: 0,
         };
         await publishRunComplete(result);
-        sendResponse({ ok: false, error: message });
+        sendResponse({ ok: false, error: errMessage });
       } finally {
         window.__aiFormFillerRunInProgress__ = false;
       }
@@ -193,6 +206,6 @@ if (!window.__aiFormFillerListenerInstalled__) {
   });
 
   // Full-page wizards destroy this document on "Continue". Resume from the
-  // checkpoint once the next step's document has loaded.
+  // checkpoint once the next step's document has loaded (same tab only).
   void maybeResumeAfterNavigation();
 }

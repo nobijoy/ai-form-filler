@@ -159,6 +159,22 @@
     "message": "Nur leere Felder ausfüllen",
     "description": "Skip fields that already have a value"
   },
+  "warnFillEmptyOnly": {
+    "message": "Warnung: Vorhandene Feldwerte (bis 60 Zeichen) können an das LLM gesendet werden, einschließlich vorausgefüllter personenbezogener Daten.",
+    "description": "Shown when fill-empty-only is off"
+  },
+  "labelExcludeSensitive": {
+    "message": "Passwort- und Zahlungsfelder überspringen",
+    "description": "Excludes sensitive fields from fill and LLM payloads"
+  },
+  "hintExcludeSensitive": {
+    "message": "Wenn aktiv, werden Passwort- und Kartenfelder weder ausgefüllt noch an die KI gesendet.",
+    "description": "Help under sensitive-field toggle"
+  },
+  "passphraseConfirmPlaceholder": {
+    "message": "Passphrase bestätigen",
+    "description": "Placeholder for passphrase confirmation"
+  },
 
   "btnSave": {
     "message": "Einstellungen speichern",

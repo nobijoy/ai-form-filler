@@ -87,6 +87,84 @@ function coerceDate(value: string): string | null {
   return null;
 }
 
+const TIME_FRAGMENT =
+  /(?:^|[^\d])(\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(?:\s*([AaPp][Mm]))?(?=$|[^\d])/;
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+/**
+ * Coerces a model answer into an `<input type="time">` value (`HH:mm` or
+ * `HH:mm:ss`). Ranges like `14:00-16:00` become the start time so we never
+ * write a value the browser silently rejects.
+ */
+function coerceTime(value: string): string | null {
+  const trimmed = value.trim();
+  if (/^\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?$/.test(trimmed)) {
+    const [hh, mm, rest] = trimmed.split(":");
+    const hour = Number(hh);
+    const minute = Number(mm);
+    if (hour > 23 || minute > 59) return null;
+    if (!rest) return `${pad2(hour)}:${pad2(minute)}`;
+    const [ss, frac] = rest.split(".");
+    const second = Number(ss);
+    if (second > 59) return null;
+    if (frac) return `${pad2(hour)}:${pad2(minute)}:${pad2(second)}.${frac.padEnd(3, "0").slice(0, 3)}`;
+    return `${pad2(hour)}:${pad2(minute)}:${pad2(second)}`;
+  }
+
+  const match = TIME_FRAGMENT.exec(trimmed);
+  if (!match) return null;
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const second = match[3] !== undefined ? Number(match[3]) : undefined;
+  const frac = match[4];
+  const meridiem = match[5]?.toLowerCase();
+
+  if (minute > 59) return null;
+  if (second !== undefined && second > 59) return null;
+
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return null;
+    if (meridiem === "pm" && hour < 12) hour += 12;
+    if (meridiem === "am" && hour === 12) hour = 0;
+  } else if (hour > 23) {
+    return null;
+  }
+
+  if (second === undefined) return `${pad2(hour)}:${pad2(minute)}`;
+  if (frac) {
+    return `${pad2(hour)}:${pad2(minute)}:${pad2(second)}.${frac.padEnd(3, "0").slice(0, 3)}`;
+  }
+  return `${pad2(hour)}:${pad2(minute)}:${pad2(second)}`;
+}
+
+/** Coerces to `YYYY-MM-DDTHH:mm` for datetime-local inputs. */
+function coerceDateTimeLocal(value: string): string | null {
+  const trimmed = value.trim();
+  const direct = trimmed.match(
+    /^(\d{4}-\d{2}-\d{2})[T\s](\d{1,2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?)/,
+  );
+  if (direct) {
+    const date = coerceDate(direct[1]);
+    const time = coerceTime(direct[2]);
+    if (!date || !time) return null;
+    return `${date}T${time.slice(0, 5)}`;
+  }
+
+  const date = coerceDate(trimmed);
+  if (date) return `${date}T12:00`;
+
+  const time = coerceTime(trimmed);
+  if (time) {
+    const today = new Date().toISOString().slice(0, 10);
+    return `${today}T${time.slice(0, 5)}`;
+  }
+  return null;
+}
+
 /**
  * Selection cap for a checkbox group.
  *
@@ -208,6 +286,28 @@ export function validateAiResponse(
       const coerced = coerceDate(value);
       if (coerced === null) {
         reject(sid, field, `"${value}" is not a usable date`);
+        continue;
+      }
+      value = coerced;
+    }
+
+    if (field.inputType === "time") {
+      const coerced = coerceTime(value);
+      if (coerced === null) {
+        reject(
+          sid,
+          field,
+          `"${value}" is not a usable time (need HH:mm, not a range like 14:00-16:00)`,
+        );
+        continue;
+      }
+      value = coerced;
+    }
+
+    if (field.inputType === "datetime-local") {
+      const coerced = coerceDateTimeLocal(value);
+      if (coerced === null) {
+        reject(sid, field, `"${value}" is not a usable date-time`);
         continue;
       }
       value = coerced;

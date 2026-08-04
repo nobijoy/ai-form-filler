@@ -10,6 +10,8 @@ Chrome extension (Manifest V3) that fills web forms with realistic synthetic dat
 
 - [Overview](#overview)
 - [Capabilities](#capabilities)
+- [Tutorial: install and use](#tutorial-install-and-use)
+- [Side panel reference](#side-panel-reference)
 - [Architecture](#architecture)
 - [Fill workflow](#fill-workflow)
 - [Why reactive forms need special handling](#why-reactive-forms-need-special-handling)
@@ -20,7 +22,7 @@ Chrome extension (Manifest V3) that fills web forms with realistic synthetic dat
 - [Security and storage](#security-and-storage)
 - [Project layout](#project-layout)
 - [Development](#development)
-- [Regression fixture](#regression-fixture)
+- [Limitations](#limitations)
 
 ## Overview
 
@@ -28,21 +30,156 @@ Manual form testing is slow and brittle: labels change, wizards add steps, and f
 
 The run is stateful. A step epoch scopes what has been filled, and a semantic run context carries facts and identity values forward, so a step-4 "confirm your email" matches the address entered in step 1.
 
+You bring your own API key. Keys stay in the extension service worker and are never exposed to the page being filled.
+
 ## Capabilities
 
 | Area | Behavior |
 | --- | --- |
 | Fill modes | **Hybrid** (heuristics then AI), **AI only**, or **Heuristics only** (no API key required) |
-| Triggers | Side panel button, context menu, keyboard shortcut (`Alt+Shift+F`) |
+| Triggers | Side panel button, context menu ("Fill this form with AI"), keyboard shortcut (`Alt+Shift+F`) |
 | Native controls | Text inputs, textareas, selects, radio groups, checkboxes |
 | ARIA widgets | `role="checkbox"`, `role="switch"`, `role="radiogroup"`, `role="combobox"` / `listbox`, `contenteditable` |
 | Multi-step forms | Automatic advancing with content-fingerprint step detection, up to 50 steps |
 | Conditional fields | `MutationObserver` settling picks up fields revealed by a checkbox or select |
+| Cross-step identity | Email, name, phone, and other slots stay coherent across the whole run |
 | Error recovery | Reads the page's own validation messages and re-asks the model with them quoted |
 | Custom requests | One free-text box for user rules, injected at highest prompt priority |
 | Multilingual | Follows the page's language, or an explicit BCP-47 override, with per-field `lang` support |
 | Providers | OpenAI, Anthropic, Google AI Studio, xAI, Groq, OpenRouter, Cerebras |
 | Live progress | Streamed to the side panel while the run is in flight |
+
+---
+
+## Tutorial: install and use
+
+This walkthrough takes you from a fresh clone to a filled multi-step form.
+
+### 1. Build the extension
+
+```bash
+npm install
+npm run build
+```
+
+The packaged extension lands in `dist/`.
+
+For day-to-day work you can keep a watch build running:
+
+```bash
+npm run dev
+```
+
+### 2. Load it in Chrome
+
+1. Open `chrome://extensions`.
+2. Turn on **Developer mode** (top right).
+3. Click **Load unpacked** and select the `dist/` folder from this repo.
+4. Pin **AI Form Filler** from the puzzle-piece toolbar menu if you want quick access.
+
+Click the toolbar icon to open the side panel. That panel is the main UI: fill trigger, progress log, connection settings, and behavior options.
+
+### 3. Choose a fill mode
+
+Open **Behavior** in the side panel and pick a **Fill mode**:
+
+| Mode | When to use | API key |
+| --- | --- | --- |
+| **Hybrid (heuristics + AI)** | Default. Local heuristics fill obvious fields; the LLM handles the rest | Required |
+| **AI only** | Everything goes to the model | Required |
+| **Heuristics only (no API key)** | Offline / no provider. Good for smoke checks, weaker on unusual labels | Not required |
+
+For first-time setup, leave **Hybrid** selected.
+
+### 4. Connect a provider (hybrid or AI only)
+
+1. Expand **Connection**.
+2. Choose a **Provider** (OpenAI is the default).
+3. Paste an **API key** for that provider.
+4. Click **Test** to verify the key, then **Save key**.
+5. Pick a **Model** from the list (or keep the provider default).
+6. Optionally enable:
+   - **Remember key across browser restarts** — keeps the key after you quit Chrome (on by default).
+   - **Encrypt stored keys with a passphrase** — wraps keys with AES-GCM; unlock after each browser restart.
+
+Click **Save settings** at the bottom when you change provider, model, or behavior options.
+
+Keys never leave the extension background worker. The page you fill never sees them.
+
+### 5. Tune behavior (recommended defaults)
+
+Still under **Behavior**:
+
+| Setting | Suggested start | What it does |
+| --- | --- | --- |
+| **Value language** | Follow the page | Generated values match the page locale (or force a BCP-47 tag with *Always use…*) |
+| **Advance through multi-step forms automatically** | On | Clicks Next / Continue after each step |
+| **Maximum steps** | 15 | Safety cap (hard max 50) |
+| **Maximum rounds per step** | 24 | How many fill/repair passes a step may use |
+| **Settle delay (ms)** | 120 | Extra wait after writes so conditional fields can appear |
+| **Fill empty fields only** | On | Skips fields that already have a value |
+| **Skip password and payment fields** | Off by default | When on, password/card fields are never filled and never sent to the AI |
+
+Turn **Skip password and payment fields** on if you are filling real product pages and do not want credentials or card numbers generated.
+
+Turning **Fill empty fields only** off can send short snippets of existing values (up to 60 characters) to the LLM — the panel warns you when that happens.
+
+### 6. Open a form and fill it
+
+1. Navigate to a page with a form.
+2. Open the side panel.
+3. Optionally type a **Custom request**, for example:
+   - `Phone as 090-XXXX-XXXX`
+   - `User names in Japanese`
+   - `Use a Berlin shipping address`
+4. Click **Fill this page**.
+
+Watch the **Progress** log. You should see scan, chunk, apply, and (on wizards) step-advance messages. When the run finishes, the status line reports how many fields and steps completed.
+
+**Other ways to start a fill** (same settings and custom request as last saved):
+
+- Right-click the page → **Fill this form with AI**
+- Keyboard: `Alt+Shift+F` (macOS: same chord)
+
+### 7. Multi-step forms end to end
+
+With auto-advance enabled:
+
+1. The extension fills the current step.
+2. It waits for the DOM to settle (conditional fields, validation).
+3. It clicks the best forward control (Next / Continue / …).
+4. It detects the next step via a content fingerprint (visible fields + URL + step indicator text).
+5. It carries identity values forward (email, name, phone, …) so confirmations match earlier answers.
+6. It stops when there is no safe next step, the step cap is hit, or only a final submit remains.
+
+Final-submit controls (Pay, Place order, Checkout) are **not** clicked by default. The form is left filled for you to review and submit.
+
+If a Next click fails because the page shows validation errors, those messages are quoted back to the model for one repair round, then Next is retried once.
+
+### 8. Everyday tips
+
+- Leave **Custom request** empty unless you need a specific format or persona; defaults already produce coherent synthetic data.
+- Prefer **Hybrid** for speed and cost; use **AI only** when heuristics keep missing domain-specific fields.
+- Use **Heuristics only** when you have no key or want a fully offline pass.
+- If the log says the run is stuck on a field, raise **Maximum rounds per step** slightly or add a custom request that matches the page's format hint.
+- Reload the extension on `chrome://extensions` after `npm run build` if the side panel looks stale.
+- Restricted Chrome pages (`chrome://`, Web Store, etc.) cannot be scripted — use a normal http(s) tab.
+
+---
+
+## Side panel reference
+
+| Section | Controls |
+| --- | --- |
+| **Run** | Custom request textarea, **Fill this page**, status line |
+| **Progress** | Live log of the current/last run, **Clear** |
+| **Connection** | Provider, API key (Test / Save / Remove), remember & encrypt options, model |
+| **Behavior** | Fill mode, language, auto-next, step/round/settle limits, empty-only, sensitive skip |
+| **Save settings** | Persists behavior and connection choices (keys are saved separately via **Save key**) |
+
+UI strings ship in English and German (`_locales/en`, `_locales/de`).
+
+---
 
 ## Architecture
 
@@ -202,19 +339,20 @@ Language resolution has three levels, most specific first:
 
 Settings live in `chrome.storage.local` under `aff_settings` and are sanitized on every read.
 
-| Setting | Meaning |
-| --- | --- |
-| `provider` / `baseUrl` / `model` | Selected provider, endpoint, and model |
-| `fillMode` | `hybrid`, `ai_only`, or `heuristics_only` |
-| `fillLanguage` / `fillLocaleOverride` | Follow the page, or force a BCP-47 locale |
-| `customRequest` | Free-text user rules, empty by default |
-| `maxRounds` | Chunk attempts per step (1–20) |
-| `settleMs` | Extra delay after writes, on top of mutation-based settling |
-| `autoNextEnabled` / `autoNextMaxSteps` | Automatic advancing, capped at 50 steps |
-| `fillEmptyOnly` | Skip fields that already hold a value |
-| `rememberKeyAcrossRestarts` | Persist keys, or drop them on browser start |
-| `fallbackProviders` | Opt-in providers to try if the selected one fails |
-| `encryptKeys` | Encrypt stored keys at rest behind a passphrase |
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `provider` / `baseUrl` / `model` | OpenAI / `https://api.openai.com/v1` / `gpt-4o-mini` | Selected provider, endpoint, and model |
+| `fillMode` | `hybrid` | `hybrid`, `ai_only`, or `heuristics_only` |
+| `fillLanguage` / `fillLocaleOverride` | `auto` / empty | Follow the page, or force a BCP-47 locale |
+| `customRequest` | empty | Free-text user rules |
+| `maxRounds` | `24` (range 1–60) | Chunk attempts per step |
+| `settleMs` | `120` (0–3000) | Extra delay after writes, on top of mutation-based settling |
+| `autoNextEnabled` / `autoNextMaxSteps` | `true` / `15` (cap 50) | Automatic advancing |
+| `fillEmptyOnly` | `true` | Skip fields that already hold a value |
+| `excludeSensitiveFields` | `false` | Skip password and payment (`cc-*`) fields |
+| `rememberKeyAcrossRestarts` | `true` | Persist keys, or drop them on browser start |
+| `fallbackProviders` | `[]` | Opt-in providers to try if the selected one fails |
+| `encryptKeys` | `false` | Encrypt stored keys at rest behind a passphrase |
 
 ## LLM providers
 
@@ -230,27 +368,27 @@ Settings live in `chrome.storage.local` under `aff_settings` and are sanitized o
 
 Anthropic differs enough to need its own adapter: `POST /v1/messages`, an `x-api-key` header, `anthropic-version`, a top-level `system` string, a mandatory `max_tokens`, and content returned as a block array. The `kind` discriminator on each provider selects the request builder and response reader.
 
-**Only the selected provider is contacted.** Fallbacks are opt-in and listed explicitly, because a fallback means shipping the scraped form contents to another vendor. Every provider origin is declared in `host_permissions`, so a mistyped base URL cannot receive a key.
+**Only the selected provider is contacted.** Fallbacks are opt-in and listed explicitly, because a fallback means shipping the scraped form contents to another vendor. Provider base URLs are pinned in code to each vendor's catalog origin before any authenticated fetch; a mistyped or attacker-supplied base URL cannot receive a key even though the manifest also lists `http://*/*` and `https://*/*` for page injection.
 
 Within a provider, a failed request walks the configured model, then the provider's default, then its fallback list, and steps down through decreasing output-token budgets when a request is rejected as too large. Authentication failures and the per-chunk request budget stop the walk immediately, since neither improves with another model.
 
 ## Security and storage
 
 - API keys live in extension storage and are read only by the service worker. Web pages, including the page being filled, never receive them.
+- The background message router rejects senders whose `id` is not this extension, and vault/key mutations are limited to extension pages (not content scripts).
 - The worker reports key **presence** and encryption state to the UI, never key material, and nothing key-derived is logged.
-- `rememberKeyAcrossRestarts: false` keeps keys in a separate bucket that is cleared on `chrome.runtime.onStartup`.
-- With `encryptKeys` enabled, keys are wrapped with AES-GCM under a PBKDF2-derived key (250k iterations, SHA-256, random per-profile salt). The derived key is held in `chrome.storage.session`, so it survives service-worker restarts but not a browser restart. Off by default.
-- Filling only ever starts from an explicit user action, never on page load.
+- `rememberKeyAcrossRestarts: false` keeps keys in a separate local bucket stamped with a `chrome.storage.session` browser-session id, and clears them on `onStartup` / `onInstalled`. A crash or missed startup still invalidates the stamp, so those keys do not outlive the browser session the user expected.
+- With `encryptKeys` enabled, keys are wrapped with AES-GCM under a PBKDF2-derived key (250k iterations, SHA-256, random per-profile salt). Passphrases must be at least 8 characters and confirmed in the UI. The derived key is held in `chrome.storage.session`, so it survives service-worker restarts but not a browser restart. Off by default.
+- Manual fills start from an explicit user action (side panel, context menu, or command). Multi-step wizards may auto-resume after navigation from a short-lived session checkpoint, but only on the same tab that started the run.
+- Password and payment fields can be skipped via `excludeSensitiveFields` (off by default). Turning off "fill empty only" shows a warning that existing values may be sent to the LLM.
+- Content scripts run with `all_frames: false` on purpose: the extension stays out of third-party payment widgets and cross-origin iframes. Forms inside iframes are a known limitation.
 - Anyone with access to the browser profile can use a stored key. Encryption raises the bar for at-rest access; it is not a defence against a compromised profile in use.
 
 ## Project layout
 
 ```
 ai-form-filler/
-├── manifest.config.ts        # MV3 manifest; host_permissions from the provider list
-├── fixtures/                 # Local React wizard used as the regression check
-│   ├── wizard.jsx
-│   └── vite.config.ts
+├── manifest.config.ts        # MV3 manifest; provider origins + http(s) wildcards for injection
 ├── _locales/{en,de}/         # UI strings
 └── src/
     ├── background/
@@ -262,6 +400,7 @@ ai-form-filler/
     │   ├── index.ts          # RUN_FILL listener, progress streaming
     │   ├── fillOrchestrator.ts # Step and round state machine
     │   ├── runState.ts       # Step epochs, applied values, run context
+    │   ├── runPersistence.ts # Session checkpoints across navigations
     │   ├── fieldId.ts        # Content-hash synthetic ids
     │   ├── scan.ts           # Adapter-driven DOM scan
     │   ├── chunking.ts       # DOM-structure grouping
@@ -277,6 +416,7 @@ ai-form-filler/
     │   ├── optionMatch.ts    # Option and boolean resolution
     │   ├── heuristics.ts     # Network-free value generation
     │   ├── fillable.ts       # Fillability rules
+    │   ├── patternCoerce.ts  # Pattern-aware value coercion
     │   └── llmResponseSchema.ts # Response parsing
     └── sidepanel/            # index.html, main.ts, sidepanel.css
 ```
@@ -294,21 +434,10 @@ Load the extension from `dist/` via `chrome://extensions` → **Load unpacked**.
 
 Adding support for a new widget family means writing one adapter with `match` / `describe` / `read` / `apply` in `src/content/widgets/` and registering it in `widgets/index.ts`. ARIA adapters are registered before native ones, so a `role="combobox"` input is driven as a combobox rather than as plain text.
 
-## Regression fixture
+## Limitations
 
-```bash
-npm run fixture    # serves http://localhost:5174
-```
-
-`fixtures/wizard.jsx` is a four-step React form built to reproduce each failure mode this extension addresses:
-
-- The same component shape on every step, so React recycles the identical input nodes.
-- Fully controlled inputs, which revert any write the framework did not observe.
-- A text field that only renders once a checkbox is checked.
-- A radio group whose values (`spd_exp`) differ from its labels (`Express (next day)`).
-- A native select with numeric values (`13`) and human labels (`Tokyo`).
-- An ARIA combobox and an ARIA switch with no native control behind them.
-- A phone field with a `pattern` that generic test data fails, forcing a repair round.
-- A step-4 email confirmation that must match the step-1 value.
-
-The fixture lists its own pass criteria on screen. Run against it after any change to the scan, apply, or navigation paths.
+- Forms inside cross-origin iframes are not filled (`all_frames: false`).
+- Chrome restricted URLs (`chrome://`, the Web Store, and similar) cannot host content scripts.
+- Final checkout / pay buttons are not clicked unless you change that policy in code; review and submit yourself.
+- Heuristics-only mode will miss many domain-specific or poorly labeled fields.
+- Generated data is synthetic test data, not a substitute for real user consent or production PII handling.

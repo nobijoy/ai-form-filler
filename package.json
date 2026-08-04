@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "vite build --watch",
     "build": "tsc --noEmit && vite build",
-    "check": "tsc --noEmit",
-    "fixture": "vite --config fixtures/vite.config.ts"
+    "check": "tsc --noEmit"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.0-beta.26",

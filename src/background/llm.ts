@@ -2,9 +2,11 @@ import { isFillableField } from "../shared/fillable";
 import { parseLlmValues, parseNavigationDecision } from "../shared/llmResponseSchema";
 import {
   PROVIDERS,
+  isAllowedBaseUrl,
   prepareRequest,
   readProviderError,
   readReply,
+  resolveProviderBaseUrl,
   type ChatRequest,
   type ProviderDefinition,
 } from "../shared/providers";
@@ -86,7 +88,10 @@ export async function getProviderModels(
   const key = (apiKey ?? "").trim();
   if (!key) return fallback;
 
-  const endpoint = modelsEndpointFor(provider, baseUrlOverride?.trim() || provider.defaultBaseUrl);
+  const rawBase = baseUrlOverride?.trim() || provider.defaultBaseUrl;
+  if (!isAllowedBaseUrl(provider, rawBase)) return fallback;
+
+  const endpoint = modelsEndpointFor(provider, resolveProviderBaseUrl(provider, rawBase));
   if (!endpoint) return fallback;
 
   try {
@@ -227,7 +232,7 @@ function encodeRunContext(context: RunContext | undefined): unknown {
 }
 
 function buildUserPayload(snapshot: FillSnapshot): string {
-  const eligible = snapshot.fields.filter(isFillableField);
+  const eligible = snapshot.fields.filter((field) => isFillableField(field));
 
   const payload = {
     language: snapshot.fillLocale || snapshot.documentLocale,
@@ -268,6 +273,8 @@ function systemPrompt(settings: ExtensionSettings, snapshot: FillSnapshot): stri
     ``,
     `Rules:`,
     `- Respect required, type, maxLen, min and max.`,
+    `- For type "time" answer with a single clock time as HH:mm (24-hour). Never return a range such as "14:00-16:00"; pick one concrete time inside the requested window.`,
+    `- For type "datetime-local" answer as YYYY-MM-DDTHH:mm.`,
     `- "pattern" is a JavaScript regular expression the value must match in full. "help" is the field's own instruction text. When either states a format, follow it literally, including separators: for pattern "0\\d{2}-\\d{4}-\\d{4}" answer "090-1234-5678", not "+81 90 1234 5678".`,
     `- For telephone fields with "country", return a genuinely valid test number for that ISO country in international E.164 form (for example +12025550123 for US). Do not use fictional +1555 numbers; phone validation libraries reject many of them.`,
     `- For select, radio and combobox fields answer with one of the given options: either its value or its visible label, copied exactly.`,
@@ -347,6 +354,9 @@ export interface FillOutcome {
   ok: boolean;
   values?: Record<string, string>;
   error?: string;
+  httpCallsUsed?: number;
+  promptChars?: number;
+  completionChars?: number;
 }
 
 interface HttpResult {
@@ -442,14 +452,20 @@ async function runProvider(
   apiKey: string,
   request: Omit<ChatRequest, "model" | "maxTokens">,
   budgets: number[],
-  callBudget: { used: number },
+  callBudget: { used: number; promptChars: number; completionChars: number },
   requestedSids: Set<string>,
 ): Promise<Record<string, string>> {
   const provider = PROVIDERS[providerId];
-  const baseUrl =
+  const rawBase =
     settings.provider === providerId && settings.baseUrl.trim()
       ? settings.baseUrl
       : provider.defaultBaseUrl;
+  if (!isAllowedBaseUrl(provider, rawBase)) {
+    throw new Error(
+      `${provider.label} base URL is not allowed (must stay on ${new URL(provider.defaultBaseUrl).origin}).`,
+    );
+  }
+  const baseUrl = resolveProviderBaseUrl(provider, rawBase);
 
   const perform = async (model: string, maxTokens: number, userMessages: string[]): Promise<HttpResult> => {
     if (callBudget.used >= MAX_HTTP_CALLS_PER_FILL) {
@@ -468,12 +484,15 @@ async function runProvider(
         providerId === "google" && isGeminiThinkingModel(model) ? "minimal" : undefined,
     });
 
+    callBudget.promptChars += prepared.body.length + request.systemPrompt.length;
+
     const res = await fetch(prepared.url, {
       method: "POST",
       headers: prepared.headers,
       body: prepared.body,
     });
     const body = await res.text();
+    callBudget.completionChars += body.length;
 
     const retryAfter =
       retryAfterHeaderMs(res.headers.get("retry-after")) ?? retryDelayFromBody(body);
@@ -636,7 +655,7 @@ export async function callLlmForFill(
   };
 
   const budgets = tokenBudgets(snapshot);
-  const callBudget = { used: 0 };
+  const callBudget = { used: 0, promptChars: 0, completionChars: 0 };
 
   const order = [settings.provider, ...settings.fallbackProviders].filter(
     (id, index, all) => all.indexOf(id) === index,
@@ -662,7 +681,13 @@ export async function callLlmForFill(
         callBudget,
         requestedSids,
       );
-      return { ok: true, values };
+      return {
+        ok: true,
+        values,
+        httpCallsUsed: callBudget.used,
+        promptChars: callBudget.promptChars,
+        completionChars: callBudget.completionChars,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       errors.push(`[${PROVIDERS[providerId].label}] ${message}`);
@@ -670,7 +695,13 @@ export async function callLlmForFill(
     }
   }
 
-  return { ok: false, error: errors.join("\n") || "No provider was able to answer." };
+  return {
+    ok: false,
+    error: errors.join("\n") || "No provider was able to answer.",
+    httpCallsUsed: callBudget.used,
+    promptChars: callBudget.promptChars,
+    completionChars: callBudget.completionChars,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -684,9 +715,17 @@ export async function testProviderKey(
   model: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const provider = PROVIDERS[providerId];
+  const rawBase = baseUrl.trim() || provider.defaultBaseUrl;
+  if (!isAllowedBaseUrl(provider, rawBase)) {
+    return {
+      ok: false,
+      error: `Base URL must stay on ${new URL(provider.defaultBaseUrl).origin}.`,
+    };
+  }
+  const safeBase = resolveProviderBaseUrl(provider, rawBase);
 
   try {
-    const prepared = prepareRequest(provider, baseUrl || provider.defaultBaseUrl, apiKey, {
+    const prepared = prepareRequest(provider, safeBase, apiKey, {
       systemPrompt: "Reply with {}",
       userMessages: ["{}"],
       model: model || provider.defaultModel,
@@ -770,27 +809,45 @@ export async function callLlmForNavigation(
   settings: ExtensionSettings,
   apiKeys: Partial<Record<LlmProviderId, string>>,
 ): Promise<
-  | { ok: true; decision: ReturnType<typeof parseNavigationDecision> }
-  | { ok: false; error: string }
+  | {
+      ok: true;
+      decision: ReturnType<typeof parseNavigationDecision>;
+      httpCallsUsed: number;
+      promptChars: number;
+      completionChars: number;
+    }
+  | { ok: false; error: string; httpCallsUsed?: number; promptChars?: number; completionChars?: number }
 > {
   const providerId = settings.provider;
   const provider = PROVIDERS[providerId];
   const apiKey = (apiKeys[providerId] ?? "").trim();
   if (!apiKey) return { ok: false, error: "No API key saved for the selected provider." };
 
+  const rawBase = settings.baseUrl.trim() || provider.defaultBaseUrl;
+  if (!isAllowedBaseUrl(provider, rawBase)) {
+    return {
+      ok: false,
+      error: `Base URL must stay on ${new URL(provider.defaultBaseUrl).origin}.`,
+    };
+  }
+
+  const systemPromptText = navigationSystemPrompt(settings);
+  const userPayload = buildNavigationPayload(snapshot, allowFinalSubmit);
   const prepared = prepareRequest(
     provider,
-    settings.baseUrl.trim() || provider.defaultBaseUrl,
+    resolveProviderBaseUrl(provider, rawBase),
     apiKey,
     {
-      systemPrompt: navigationSystemPrompt(settings),
-      userMessages: [buildNavigationPayload(snapshot, allowFinalSubmit)],
+      systemPrompt: systemPromptText,
+      userMessages: [userPayload],
       model: settings.model || provider.defaultModel,
       maxTokens: 260,
       temperature: 0,
       jsonMode: true,
     },
   );
+
+  const promptChars = prepared.body.length + systemPromptText.length;
 
   try {
     const res = await fetch(prepared.url, {
@@ -799,12 +856,39 @@ export async function callLlmForNavigation(
       body: prepared.body,
     });
     const body = await res.text();
-    if (!res.ok) return { ok: false, error: readProviderError(body) };
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: readProviderError(body),
+        httpCallsUsed: 1,
+        promptChars,
+        completionChars: body.length,
+      };
+    }
 
     const reply = readReply(provider, body);
-    if (!reply.content) return { ok: false, error: "Empty navigation response." };
-    return { ok: true, decision: parseNavigationDecision(reply.content) };
+    if (!reply.content) {
+      return {
+        ok: false,
+        error: "Empty navigation response.",
+        httpCallsUsed: 1,
+        promptChars,
+        completionChars: body.length,
+      };
+    }
+    return {
+      ok: true,
+      decision: parseNavigationDecision(reply.content),
+      httpCallsUsed: 1,
+      promptChars,
+      completionChars: body.length,
+    };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      httpCallsUsed: 1,
+      promptChars,
+    };
   }
 }

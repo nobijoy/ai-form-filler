@@ -57,8 +57,9 @@ export function getUnresolvedCandidates(
   settings: ExtensionSettings,
   appliedValues: Record<string, string>,
 ): FieldDescriptor[] {
+  const excludeSensitive = settings.excludeSensitiveFields === true;
   return fields.filter((field) => {
-    if (!isFillableField(field)) return false;
+    if (!isFillableField(field, { excludeSensitive })) return false;
 
     const appliedValue = appliedValues[field.syntheticId];
     if (appliedValue !== undefined) {
@@ -72,6 +73,10 @@ export function getUnresolvedCandidates(
   });
 }
 
-export function visibleFillableFields(fields: FieldDescriptor[]): FieldDescriptor[] {
-  return fields.filter((field) => isFillableField(field));
+export function visibleFillableFields(
+  fields: FieldDescriptor[],
+  settings?: ExtensionSettings,
+): FieldDescriptor[] {
+  const excludeSensitive = settings ? settings.excludeSensitiveFields === true : false;
+  return fields.filter((field) => isFillableField(field, { excludeSensitive }));
 }

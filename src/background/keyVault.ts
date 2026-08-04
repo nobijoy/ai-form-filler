@@ -9,6 +9,7 @@
  */
 
 const PBKDF2_ITERATIONS = 250_000;
+const MIN_PASSPHRASE_LENGTH = 8;
 const SALT_KEY = "aff_kdfSalt";
 const SESSION_KEY = "aff_sessionKek";
 
@@ -61,9 +62,13 @@ async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKe
 
 /** Derives the wrapping key from a passphrase and holds it for this browser session. */
 export async function unlockVault(passphrase: string): Promise<void> {
-  if (!passphrase.trim()) throw new Error("Passphrase must not be empty.");
+  const trimmed = passphrase.trim();
+  if (!trimmed) throw new Error("Passphrase must not be empty.");
+  if (trimmed.length < MIN_PASSPHRASE_LENGTH) {
+    throw new Error(`Passphrase must be at least ${MIN_PASSPHRASE_LENGTH} characters.`);
+  }
   const salt = await getOrCreateSalt();
-  const key = await deriveKey(passphrase, salt);
+  const key = await deriveKey(trimmed, salt);
   const exported = await crypto.subtle.exportKey("raw", key);
   await chrome.storage.session.set({ [SESSION_KEY]: toBase64(new Uint8Array(exported)) });
 }

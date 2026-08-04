@@ -568,7 +568,7 @@ function buildNavigationSnapshot(params: AdvanceParams, controls: NavigationCont
     pageUrl: `${location.origin}${location.pathname}`,
     documentLocale: params.documentLocale,
     fillLocale: params.fillLocale,
-    visibleFillableFieldCount: visibleFillableFields(params.beforeFields).length,
+    visibleFillableFieldCount: visibleFillableFields(params.beforeFields, params.settings).length,
     unresolvedRequiredCount: params.unresolvedRequiredCount,
     multiStepHints: detectMultiStepHints(),
     controls,

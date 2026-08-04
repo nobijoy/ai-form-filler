@@ -30,6 +30,7 @@ const MENU_ID = "aff_fill_now";
 // ---------------------------------------------------------------------------
 
 chrome.runtime.onInstalled.addListener(() => {
+  void clearEphemeralBrowserSessionKey();
   void setupContextMenu();
   void enableSidePanelOnActionClick();
 });
@@ -109,14 +110,37 @@ async function ensureContentScript(tabId: number): Promise<void> {
 
 type Responder = (response: unknown) => void;
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+/** Messages that must come from an extension page (side panel), never a tab. */
+const EXTENSION_PAGE_ONLY = new Set([
+  "SAVE_SETTINGS",
+  "SAVE_API_KEY",
+  "CLEAR_API_KEY",
+  "TEST_API_KEY",
+  "GET_PROVIDER_MODELS",
+  "UNLOCK_VAULT",
+  "LOCK_VAULT",
+]);
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Other extensions can address this worker by ID; reject anything foreign.
+  if (sender.id !== chrome.runtime.id) return false;
+
   const type = (message as { type?: string } | undefined)?.type;
   if (!type) return false;
+
+  if (EXTENSION_PAGE_ONLY.has(type) && sender.tab) {
+    sendResponse({ ok: false, error: "This action is only available from the extension UI." });
+    return false;
+  }
 
   switch (type) {
     case "GET_SETTINGS":
       void handleGetSettings(sendResponse);
       return true;
+
+    case "GET_OWN_TAB_ID":
+      sendResponse({ tabId: sender.tab?.id });
+      return false;
 
     case "SAVE_SETTINGS":
       void handleSaveSettings(message as { settings: Partial<ExtensionSettings> }, sendResponse);
@@ -430,8 +454,16 @@ async function handleLlmFill(snapshot: FillSnapshot): Promise<LlmFillResponse> {
   }
 
   const result = await callLlmForFill(snapshot, settings, apiKeys);
-  if (!result.ok) return { ok: false, error: result.error };
-  return { ok: true, values: result.values };
+  if (!result.ok) {
+    return { ok: false, error: result.error, httpCallsUsed: result.httpCallsUsed };
+  }
+  return {
+    ok: true,
+    values: result.values,
+    httpCallsUsed: result.httpCallsUsed,
+    promptChars: result.promptChars,
+    completionChars: result.completionChars,
+  };
 }
 
 async function handleLlmNavigation(
@@ -449,6 +481,14 @@ async function handleLlmNavigation(
   }
 
   const result = await callLlmForNavigation(snapshot, allowFinalSubmit, settings, apiKeys);
-  if (!result.ok) return { ok: false, error: result.error };
-  return { ok: true, decision: { ...result.decision, source: "ai" } };
+  if (!result.ok) {
+    return { ok: false, error: result.error, httpCallsUsed: result.httpCallsUsed };
+  }
+  return {
+    ok: true,
+    decision: { ...result.decision, source: "ai" },
+    httpCallsUsed: result.httpCallsUsed,
+    promptChars: result.promptChars,
+    completionChars: result.completionChars,
+  };
 }

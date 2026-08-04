@@ -1,5 +1,5 @@
 import type { FieldDescriptor } from "./types";
-import { isFillableField } from "./fillable";
+import { isFillableField, PAYMENT_AUTOCOMPLETE } from "./fillable";
 
 /**
  * Network-free value generation for fields whose meaning is unambiguous from
@@ -9,8 +9,6 @@ import { isFillableField } from "./fillable";
  * Values are seeded from the run's identity map so that a field filled here
  * stays consistent with the same slot on a later step.
  */
-
-const PAYMENT_AUTOCOMPLETE = /^(cc-|card)/i;
 
 const HEURISTIC_AUTOCOMPLETE = new Set([
   "email",

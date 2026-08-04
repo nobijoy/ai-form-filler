@@ -294,6 +294,10 @@ select[multiple].inp {
   word-break: break-word;
 }
 
+.subhint.warn {
+  color: var(--err);
+}
+
 #keyStatus,
 #vaultStatus {
   min-height: 1.4em;
