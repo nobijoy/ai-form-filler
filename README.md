@@ -22,7 +22,6 @@ Chrome extension (Manifest V3) that fills web forms with realistic synthetic dat
 - [Security and storage](#security-and-storage)
 - [Project layout](#project-layout)
 - [Development](#development)
-- [Limitations](#limitations)
 
 ## Overview
 
@@ -151,6 +150,8 @@ With auto-advance enabled:
 4. It detects the next step via a content fingerprint (visible fields + URL + step indicator text).
 5. It carries identity values forward (email, name, phone, …) so confirmations match earlier answers.
 6. It stops when there is no safe next step, the step cap is hit, or only a final submit remains.
+
+**Search / lookup fields:** after filling a search-like control, the extension waits for a results list or table and clicks the best matching row (using the typed value and any quoted name in the custom request). Search inputs are not blurred immediately so typeahead panels stay open.  
 
 Final-submit controls (Pay, Place order, Checkout) are **not** clicked by default. The form is left filled for you to review and submit.
 
@@ -433,11 +434,3 @@ npm run check      # typecheck only
 Load the extension from `dist/` via `chrome://extensions` → **Load unpacked**. Click the toolbar icon to open the side panel.
 
 Adding support for a new widget family means writing one adapter with `match` / `describe` / `read` / `apply` in `src/content/widgets/` and registering it in `widgets/index.ts`. ARIA adapters are registered before native ones, so a `role="combobox"` input is driven as a combobox rather than as plain text.
-
-## Limitations
-
-- Forms inside cross-origin iframes are not filled (`all_frames: false`).
-- Chrome restricted URLs (`chrome://`, the Web Store, and similar) cannot host content scripts.
-- Final checkout / pay buttons are not clicked unless you change that policy in code; review and submit yourself.
-- Heuristics-only mode will miss many domain-specific or poorly labeled fields.
-- Generated data is synthetic test data, not a substitute for real user consent or production PII handling.

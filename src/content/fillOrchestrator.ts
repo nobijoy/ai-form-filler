@@ -1,6 +1,12 @@
 import { applyValuesToInstances, reconcileAppliedValues } from "./apply";
 import { getUnresolvedCandidates, visibleFillableFields } from "./candidates";
 import { buildChunks } from "./chunking";
+import {
+  parseProductAddCount,
+  pickSearchResults,
+  runProductDialogLoop,
+  isSearchLikeField,
+} from "./interactiveActions";
 import { advanceFormStep, detectMultiStepHints, hasForwardNavigationControl, inferWizardStepCount } from "./navigation";
 import { RunState } from "./runState";
 import type { ScanResult } from "./scan";
@@ -111,6 +117,36 @@ function sendMessage<T>(msg: unknown): Promise<T> {
       if (err) reject(new Error(err.message));
       else resolve(response as T);
     });
+  });
+}
+
+async function pickAfterApply(params: {
+  settings: ExtensionSettings;
+  state: RunState;
+  applied: Record<string, string>;
+  instances: ScanResult["instances"];
+  fields: FieldDescriptor[];
+  onStatus?: (message: string) => void;
+}): Promise<void> {
+  const bySid = new Map(params.fields.map((field) => [field.syntheticId, field]));
+  const appliedEntries = Object.entries(params.applied)
+    .map(([sid, value]) => {
+      const field = bySid.get(sid);
+      if (!field || !isSearchLikeField(field)) return null;
+      const el = params.instances.get(sid)?.elements[0];
+      return { field, value, el };
+    })
+    .filter((entry): entry is { field: FieldDescriptor; value: string; el: HTMLElement | undefined } =>
+      entry !== null,
+    );
+
+  if (appliedEntries.length === 0) return;
+
+  await pickSearchResults({
+    settings: params.settings,
+    applied: appliedEntries,
+    identity: params.state.context.identity,
+    onStatus: params.onStatus,
   });
 }
 
@@ -232,6 +268,8 @@ export async function runFillOrchestration(
   let stopReason: string | null = null;
   /** Set when the run ended cleanly at the end of the form. */
   let finishedNote: string | null = null;
+  const productAddCount = parseProductAddCount(settings.customRequest);
+  let productsHandled = false;
 
   const trackUsage = (response: LlmFillResponse | { httpCallsUsed?: number }): void => {
     const used = response.httpCallsUsed ?? 0;
@@ -243,6 +281,44 @@ export async function runFillOrchestration(
           ? ` (~${(response as LlmFillResponse).promptChars} prompt chars)`
           : ""),
     );
+  };
+
+  const requestDialogFill = async (fields: FieldDescriptor[]): Promise<Record<string, string>> => {
+    if (fields.length === 0) return {};
+    const snapshot: FillSnapshot = {
+      pageTitle: document.title,
+      pageUrl: `${location.origin}${location.pathname}`,
+      documentLocale: docLocale,
+      fillLocale,
+      roundIndex: 0,
+      maxRounds: 1,
+      fields,
+      chunkSection: "product-dialog",
+      runContext: state.context,
+    };
+    try {
+      const response = await sendMessage<LlmFillResponse>({ type: "LLM_FILL", snapshot });
+      trackUsage(response);
+      if (!response.ok) return {};
+      return response.values ?? {};
+    } catch {
+      return {};
+    }
+  };
+
+  const maybeRunProductDialogs = async (): Promise<void> => {
+    if (productsHandled || productAddCount <= 0) return;
+    const created = await runProductDialogLoop({
+      settings,
+      state,
+      count: productAddCount,
+      requestLlmFill: requestDialogFill,
+      onStatus,
+    });
+    if (created > 0) {
+      productsHandled = true;
+      onStatus?.(`Created ${created} product(s) via dialog.`);
+    }
   };
 
   if (resume) {
@@ -304,6 +380,9 @@ export async function runFillOrchestration(
         return { ok: false, warnings, stepsCompleted, fieldsFilled };
       }
 
+      // Add-product dialogs often live on a step that has few other fields.
+      await maybeRunProductDialogs();
+
       stepsCompleted += 1;
 
       if (outcome.stuckMessage) {
@@ -324,6 +403,9 @@ export async function runFillOrchestration(
         stopReason = `Reached the ${maxSteps}-step limit.`;
         break;
       }
+
+      // Give the page a moment after search-result selection so Next enables.
+      await waitForDomQuiet({ quietMs: Math.max(150, settings.settleMs), timeoutMs: 2500 });
 
       // Review / confirmation steps often have nothing left to fill and only a
       // final Submit. Stop here instead of pressing it.
@@ -644,6 +726,15 @@ async function runSingleStep(params: StepParams): Promise<StepOutcome> {
       appliedNow = Object.keys(applyResult.applied);
       applyFailed = applyResult.failed;
       filledCount += appliedNow.length;
+
+      await pickAfterApply({
+        settings,
+        state,
+        applied: applyResult.applied,
+        instances: roundScan.instances,
+        fields: chunkFields,
+        onStatus,
+      });
     }
 
     chunk.appliedSids = Array.from(new Set([...chunk.appliedSids, ...appliedNow]));
@@ -716,6 +807,15 @@ async function applyHeuristics(params: StepParams): Promise<number> {
   for (const [sid, value] of Object.entries(result.applied)) {
     state.recordApplied(fieldsBySid.get(sid), sid, value);
   }
+
+  await pickAfterApply({
+    settings,
+    state,
+    applied: result.applied,
+    instances: scan.instances,
+    fields: candidates,
+    onStatus: params.onStatus,
+  });
 
   await waitForDomQuiet({ quietMs: Math.max(120, settings.settleMs), timeoutMs: 2000 });
   return Object.keys(result.applied).length;

@@ -30,6 +30,9 @@ const NON_FILLABLE_INPUT_TYPES = new Set([
   "file",
 ]);
 
+const SEARCH_HINT =
+  /search|lookup|find|query|customer|client|会員|检索|検索|검색|buscar|chercher|suchen/i;
+
 function inputTypeOf(el: HTMLInputElement): string {
   return (el.type || "text").toLowerCase();
 }
@@ -170,14 +173,30 @@ async function applyTextLike(
     return applyCompositePhone(el, value);
   }
 
+  const keepFocusForSearch =
+    el instanceof HTMLInputElement &&
+    (inputTypeOf(el) === "search" ||
+      SEARCH_HINT.test(
+        [
+          associatedLabelText(el),
+          el.getAttribute("aria-label") || "",
+          el.name,
+          el.id,
+          el.placeholder,
+        ].join(" "),
+      ));
+
   el.focus({ preventScroll: true });
   el.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
 
   setNativeValue(el, value);
   fireInputAndChange(el);
 
-  el.dispatchEvent(new FocusEvent("blur"));
-  el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+  // Blurring closes typeahead / search result panels before we can click a row.
+  if (!keepFocusForSearch) {
+    el.dispatchEvent(new FocusEvent("blur"));
+    el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+  }
   await nextFrame();
   // Controlled phone widgets often validate in an effect after the first
   // render. Wait one more frame before deciding that the value stuck.
