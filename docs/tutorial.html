@@ -6,7 +6,7 @@
     <title>Tutorial — AI Form Filler</title>
     <meta
       name="description"
-      content="Install AI Form Filler, connect a provider, and fill multi-step forms from start to finish."
+      content="Configure AI Form Filler and fill multi-step forms from start to finish."
     />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./assets/site.css" />
@@ -23,13 +23,14 @@
         </button>
         <ul class="nav-links" id="site-nav">
           <li><a data-nav href="./index.html">Home</a></li>
+          <li><a data-nav href="./installation.html">Install</a></li>
           <li><a data-nav href="./tutorial.html">Tutorial</a></li>
           <li><a data-nav href="./features.html">Features</a></li>
           <li><a data-nav href="./configuration.html">Config</a></li>
           <li><a data-nav href="./architecture.html">Architecture</a></li>
           <li><a data-nav href="./security.html">Security</a></li>
           <li>
-            <a class="github" href="https://github.com/nobijoy/ai-form-filler" rel="noopener"
+            <a class="github" href="https://github.com/nobijoy/ai-form-filler" target="_blank" rel="noopener noreferrer"
               >GitHub</a
             >
           </li>
@@ -40,13 +41,14 @@
     <main>
       <article class="prose">
         <header class="page-head">
-          <h1>Tutorial: install and use</h1>
-          <p>From a fresh clone to a filled multi-step form.</p>
+          <h1>Tutorial: how to use it</h1>
+          <p>
+            Configure the side panel and fill a form end to end. Not installed yet?
+            <a href="./installation.html">Install first</a>.
+          </p>
         </header>
 
         <ul class="toc">
-          <li><a href="#build">Build</a></li>
-          <li><a href="#load">Load in Chrome</a></li>
           <li><a href="#mode">Fill mode</a></li>
           <li><a href="#provider">Provider</a></li>
           <li><a href="#behavior">Behavior</a></li>
@@ -56,35 +58,9 @@
         </ul>
 
         <div class="steps">
-          <section class="step" id="build">
-            <h3>Build the extension</h3>
-            <pre><code>npm install
-npm run build</code></pre>
-            <p>The packaged extension lands in <code>dist/</code>.</p>
-            <p>For day-to-day work you can keep a watch build running:</p>
-            <pre><code>npm run dev</code></pre>
-          </section>
-
-          <section class="step" id="load">
-            <h3>Load it in Chrome</h3>
-            <ol>
-              <li>Open <code>chrome://extensions</code>.</li>
-              <li>Turn on <strong>Developer mode</strong> (top right).</li>
-              <li>Click <strong>Load unpacked</strong> and select the <code>dist/</code> folder.</li>
-              <li>
-                Pin <strong>AI Form Filler</strong> from the puzzle-piece toolbar menu if you want
-                quick access.
-              </li>
-            </ol>
-            <p>
-              Click the toolbar icon to open the side panel — fill trigger, progress log, connection
-              settings, and behavior options.
-            </p>
-          </section>
-
           <section class="step" id="mode">
             <h3>Choose a fill mode</h3>
-            <p>Open <strong>Behavior</strong> and pick a <strong>Fill mode</strong>:</p>
+            <p>Open the side panel → <strong>Behavior</strong> and pick a <strong>Fill mode</strong>:</p>
             <div class="table-wrap">
               <table>
                 <thead>
@@ -269,8 +245,8 @@ npm run build</code></pre>
                 request that matches the page’s format hint.
               </li>
               <li>
-                Reload the extension on <code>chrome://extensions</code> after
-                <code>npm run build</code> if the side panel looks stale.
+                If you loaded from GitHub, reload the extension on <code>chrome://extensions</code>
+                after <code>npm run build</code> when the side panel looks stale.
               </li>
               <li>
                 Restricted Chrome pages (<code>chrome://</code>, Web Store, etc.) cannot be scripted.
@@ -281,6 +257,7 @@ npm run build</code></pre>
 
         <p>
           More detail:
+          <a href="./installation.html">installation</a> ·
           <a href="./configuration.html">configuration</a> ·
           <a href="./features.html">features</a> ·
           <a href="./security.html">security</a>

@@ -49,7 +49,8 @@ You bring your own API key. Keys stay in the extension service worker and are ne
 | Providers | OpenAI, Anthropic, Google AI Studio, xAI, Groq, OpenRouter, Cerebras |
 | Live progress | Streamed to the side panel while the run is in flight |
 
-Step-by-step install and usage: [Tutorial](https://nobijoy.github.io/ai-form-filler/tutorial.html).
+- [Installation](https://nobijoy.github.io/ai-form-filler/installation.html) — Chrome Web Store or build from GitHub  
+- [Tutorial](https://nobijoy.github.io/ai-form-filler/tutorial.html) — configure and fill forms
 
 ## Side panel reference
 

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Installation — AI Form Filler</title>
+    <meta
+      name="description"
+      content="Install AI Form Filler from the Chrome Web Store, or build it from GitHub."
+    />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./assets/site.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="nav-inner">
+        <a class="brand" href="./index.html">
+          <img src="./assets/icon.svg" alt="" width="32" height="32" />
+          AI Form Filler
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          Menu
+        </button>
+        <ul class="nav-links" id="site-nav">
+          <li><a data-nav href="./index.html">Home</a></li>
+          <li><a data-nav href="./installation.html">Install</a></li>
+          <li><a data-nav href="./tutorial.html">Tutorial</a></li>
+          <li><a data-nav href="./features.html">Features</a></li>
+          <li><a data-nav href="./configuration.html">Config</a></li>
+          <li><a data-nav href="./architecture.html">Architecture</a></li>
+          <li><a data-nav href="./security.html">Security</a></li>
+          <li>
+            <a class="github" href="https://github.com/nobijoy/ai-form-filler" target="_blank" rel="noopener noreferrer"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+      </div>
+    </header>
+
+    <main>
+      <article class="prose">
+        <header class="page-head">
+          <h1>Installation</h1>
+          <p>Add the extension from the Chrome Web Store, or build it yourself from GitHub.</p>
+        </header>
+
+        <div class="feature-grid" style="margin-bottom: 2rem">
+          <a class="feature-card" href="#chrome-web-store" style="text-decoration: none; color: inherit">
+            <h3>Chrome Web Store</h3>
+            <p>One-click install for everyday use. Recommended for most people.</p>
+          </a>
+          <a class="feature-card" href="#from-github" style="text-decoration: none; color: inherit">
+            <h3>Build from GitHub</h3>
+            <p>Clone, build, and load unpacked — for contributors and the latest main branch.</p>
+          </a>
+        </div>
+
+        <section id="chrome-web-store">
+          <h2>1. Install from the Chrome Web Store</h2>
+          <p>Best if you just want to use the extension and get updates automatically.</p>
+          <ol>
+            <li>
+              Open the
+              <a
+                href="https://chromewebstore.google.com/detail/ai-form-filler"
+                rel="noopener"
+                >AI Form Filler listing</a
+              >
+              on the Chrome Web Store.
+              <span class="note" style="display: block; margin-top: 0.75rem">
+                If the listing is not live yet, use
+                <a href="#from-github">Build from GitHub</a> below.
+              </span>
+            </li>
+            <li>Click <strong>Add to Chrome</strong>, then confirm <strong>Add extension</strong>.</li>
+            <li>
+              Pin <strong>AI Form Filler</strong> from the puzzle-piece toolbar menu if you want quick
+              access.
+            </li>
+            <li>Click the toolbar icon to open the side panel.</li>
+          </ol>
+          <p>
+            Next: follow the <a href="./tutorial.html">tutorial</a> to connect a provider and fill a
+            form.
+          </p>
+        </section>
+
+        <section id="from-github">
+          <h2>2. Download from GitHub, build, and load</h2>
+          <p>
+            Use this path if you are developing, testing unreleased changes, or the Web Store listing
+            is not available.
+          </p>
+
+          <h3>Requirements</h3>
+          <ul>
+            <li>Node.js 18+ and npm</li>
+            <li>Google Chrome (or another Chromium browser that supports MV3 extensions)</li>
+            <li>
+              Source from
+              <a href="https://github.com/nobijoy/ai-form-filler" rel="noopener"
+                >github.com/nobijoy/ai-form-filler</a
+              >
+            </li>
+          </ul>
+
+          <h3>Build</h3>
+          <pre><code>git clone https://github.com/nobijoy/ai-form-filler.git
+cd ai-form-filler
+npm install
+npm run build</code></pre>
+          <p>The packaged extension lands in <code>dist/</code>.</p>
+          <p>For day-to-day development you can keep a watch build running:</p>
+          <pre><code>npm run dev</code></pre>
+
+          <h3>Load unpacked in Chrome</h3>
+          <ol>
+            <li>Open <code>chrome://extensions</code>.</li>
+            <li>Turn on <strong>Developer mode</strong> (top right).</li>
+            <li>
+              Click <strong>Load unpacked</strong> and select the <code>dist/</code> folder from this
+              repo.
+            </li>
+            <li>
+              Pin <strong>AI Form Filler</strong> from the puzzle-piece toolbar menu if you want quick
+              access.
+            </li>
+            <li>Click the toolbar icon to open the side panel.</li>
+          </ol>
+          <div class="note">
+            After you change source and run <code>npm run build</code> again, click the refresh icon
+            on the extension card in <code>chrome://extensions</code> so Chrome picks up the new
+            build.
+          </div>
+          <p>
+            Next: follow the <a href="./tutorial.html">tutorial</a> to configure fill mode, connect a
+            provider, and run your first fill.
+          </p>
+        </section>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        Documentation for
+        <a href="https://github.com/nobijoy/ai-form-filler" rel="noopener">nobijoy/ai-form-filler</a>
+      </p>
+    </footer>
+    <script src="./assets/site.js"></script>
+  </body>
+</html>
