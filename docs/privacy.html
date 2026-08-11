@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy — AI Form Filler</title>
+    <meta
+      name="description"
+      content="Privacy Policy for the AI Form Filler Chrome extension: what data is read, where it is stored, and how LLM providers are used."
+    />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./assets/site.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="nav-inner">
+        <a class="brand" href="./index.html">
+          <img src="./assets/icon.svg" alt="" width="32" height="32" />
+          AI Form Filler
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          Menu
+        </button>
+        <ul class="nav-links" id="site-nav">
+          <li><a data-nav href="./index.html">Home</a></li>
+          <li><a data-nav href="./installation.html">Install</a></li>
+          <li><a data-nav href="./tutorial.html">Tutorial</a></li>
+          <li><a data-nav href="./features.html">Features</a></li>
+          <li><a data-nav href="./configuration.html">Config</a></li>
+          <li><a data-nav href="./architecture.html">Architecture</a></li>
+          <li><a data-nav href="./security.html">Security</a></li>
+          <li><a data-nav href="./privacy.html">Privacy</a></li>
+          <li>
+            <a class="github" href="https://github.com/nobijoy/ai-form-filler" target="_blank" rel="noopener noreferrer"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+      </div>
+    </header>
+
+    <main>
+      <article class="prose">
+        <header class="page-head">
+          <h1>Privacy Policy for AI Form Filler</h1>
+          <p>Last updated: August 11, 2026</p>
+        </header>
+
+        <p>
+          This Privacy Policy describes how the <strong>AI Form Filler</strong> Chrome extension
+          (“the Extension”) handles information when you install and use it. The Extension is
+          designed for QA and development workflows that fill web forms with synthetic test data.
+        </p>
+
+        <h2 id="collection">Data collection and usage</h2>
+        <p>
+          AI Form Filler reads webpage structure (website content such as form labels, field types,
+          placeholders, and related UI text) and may use user-provided candidate profiles or custom
+          instructions (which can include personally identifiable information) strictly to perform
+          local, browser-based form filling on pages you choose to fill.
+        </p>
+        <p>The Extension does not browse the web on its own. Filling starts only from an explicit
+          user action (side panel, context menu, or keyboard shortcut), except for short-lived
+          same-tab resume after a multi-step navigation you already started.
+        </p>
+
+        <h2 id="storage">Data storage</h2>
+        <p>
+          Settings, optional custom instructions, fill preferences, and API keys are stored
+          <strong>locally on your device</strong> using Chrome extension storage
+          (<code>chrome.storage.local</code> and, when applicable,
+          <code>chrome.storage.session</code>). You may optionally encrypt stored API keys at rest
+          with a passphrase.
+        </p>
+        <p>
+          We do <strong>not</strong> operate external servers that collect, store, analyze, or sell
+          your profiles, form contents, or API keys.
+        </p>
+
+        <h2 id="third-party">Third-party processing</h2>
+        <p>
+          If you configure an LLM provider and use a fill mode that calls the model, field labels,
+          limited form context, and related prompt content are sent securely over HTTPS
+          <strong>directly from your browser</strong> to the provider you selected (for example
+          OpenAI, Anthropic, Google AI Studio, xAI, Groq, OpenRouter, or Cerebras), solely to
+          generate autofill values for that request.
+        </p>
+        <ul>
+          <li>You supply and control your own API key.</li>
+          <li>Only the selected provider is contacted (fallbacks are opt-in).</li>
+          <li>
+            Heuristics-only mode does not send form contents to any LLM provider.
+          </li>
+          <li>
+            Third-party providers process data under their own privacy policies and terms. Review
+            those policies for the vendor you configure.
+          </li>
+        </ul>
+
+        <h2 id="sharing">Data sharing</h2>
+        <p>
+          We do not sell, rent, or trade user data to third parties, data brokers, or advertising
+          networks. Form-related content leaves your device only when you enable LLM filling and
+          only to the API endpoint you configured.
+        </p>
+
+        <h2 id="sensitive">Sensitive fields</h2>
+        <p>
+          The Extension can optionally skip password and payment-related fields
+          (<code>excludeSensitiveFields</code>). Even when those options are off, you remain
+          responsible for not submitting real production credentials or payment data into test
+          workflows.
+        </p>
+
+        <h2 id="permissions">Chrome permissions</h2>
+        <p>
+          Host and storage permissions exist so the Extension can inject into pages you fill, keep
+          settings and keys on device, and call your chosen provider’s HTTPS API. They are not used
+          to track browsing history for advertising or analytics.
+        </p>
+
+        <h2 id="changes">Changes to this policy</h2>
+        <p>
+          We may update this Privacy Policy as the Extension evolves. The “Last updated” date at the
+          top of this page will change when material revisions are published.
+        </p>
+
+        <h2 id="contact">Contact us</h2>
+        <p>
+          For privacy questions or concerns about AI Form Filler, contact:
+          <a href="mailto:nobijoy1446@gmail.com">nobijoy1446@gmail.com</a>
+        </p>
+
+        <p>
+          Related:
+          <a href="./security.html">Security and storage</a>,
+          <a href="./configuration.html">Configuration</a>,
+          <a href="https://github.com/nobijoy/ai-form-filler" rel="noopener">GitHub repository</a>.
+        </p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        Documentation for
+        <a href="https://github.com/nobijoy/ai-form-filler" rel="noopener">nobijoy/ai-form-filler</a>
+        · <a href="./privacy.html">Privacy Policy</a>
+      </p>
+    </footer>
+    <script src="./assets/site.js"></script>
+  </body>
+</html>

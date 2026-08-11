@@ -6,7 +6,8 @@ Chrome extension (Manifest V3) that fills web forms with realistic synthetic dat
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-6.x-646CFF.svg)](https://vitejs.dev/)
 
-**Docs & tutorials:** [https://nobijoy.github.io/ai-form-filler/](https://nobijoy.github.io/ai-form-filler/)
+**Docs & tutorials:** [https://nobijoy.github.io/ai-form-filler/](https://nobijoy.github.io/ai-form-filler/)  
+**Privacy Policy:** [https://nobijoy.github.io/ai-form-filler/privacy.html](https://nobijoy.github.io/ai-form-filler/privacy.html)
 
 ## Contents
 
@@ -23,6 +24,7 @@ Chrome extension (Manifest V3) that fills web forms with realistic synthetic dat
 - [Security and storage](#security-and-storage)
 - [Project layout](#project-layout)
 - [Development](#development)
+- [License](#-license)
 
 ## Overview
 
@@ -323,3 +325,5 @@ Adding support for a new widget family means writing one adapter with `match` / 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+Privacy Policy: [https://nobijoy.github.io/ai-form-filler/privacy.html](https://nobijoy.github.io/ai-form-filler/privacy.html)
