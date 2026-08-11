@@ -319,3 +319,7 @@ npm run check      # typecheck only
 Load the extension from `dist/` via `chrome://extensions` → **Load unpacked**. Click the toolbar icon to open the side panel.
 
 Adding support for a new widget family means writing one adapter with `match` / `describe` / `read` / `apply` in `src/content/widgets/` and registering it in `widgets/index.ts`. ARIA adapters are registered before native ones, so a `role="combobox"` input is driven as a combobox rather than as plain text.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
