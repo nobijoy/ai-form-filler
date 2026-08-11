@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tutorial — AI Form Filler</title>
+    <meta
+      name="description"
+      content="Install AI Form Filler, connect a provider, and fill multi-step forms from start to finish."
+    />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./assets/site.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="nav-inner">
+        <a class="brand" href="./index.html">
+          <img src="./assets/icon.svg" alt="" width="32" height="32" />
+          AI Form Filler
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          Menu
+        </button>
+        <ul class="nav-links" id="site-nav">
+          <li><a data-nav href="./index.html">Home</a></li>
+          <li><a data-nav href="./tutorial.html">Tutorial</a></li>
+          <li><a data-nav href="./features.html">Features</a></li>
+          <li><a data-nav href="./configuration.html">Config</a></li>
+          <li><a data-nav href="./architecture.html">Architecture</a></li>
+          <li><a data-nav href="./security.html">Security</a></li>
+          <li>
+            <a class="github" href="https://github.com/nobijoy/ai-form-filler" rel="noopener"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+      </div>
+    </header>
+
+    <main>
+      <article class="prose">
+        <header class="page-head">
+          <h1>Tutorial: install and use</h1>
+          <p>From a fresh clone to a filled multi-step form.</p>
+        </header>
+
+        <ul class="toc">
+          <li><a href="#build">Build</a></li>
+          <li><a href="#load">Load in Chrome</a></li>
+          <li><a href="#mode">Fill mode</a></li>
+          <li><a href="#provider">Provider</a></li>
+          <li><a href="#behavior">Behavior</a></li>
+          <li><a href="#fill">Fill a page</a></li>
+          <li><a href="#wizard">Multi-step</a></li>
+          <li><a href="#tips">Tips</a></li>
+        </ul>
+
+        <div class="steps">
+          <section class="step" id="build">
+            <h3>Build the extension</h3>
+            <pre><code>npm install
+npm run build</code></pre>
+            <p>The packaged extension lands in <code>dist/</code>.</p>
+            <p>For day-to-day work you can keep a watch build running:</p>
+            <pre><code>npm run dev</code></pre>
+          </section>
+
+          <section class="step" id="load">
+            <h3>Load it in Chrome</h3>
+            <ol>
+              <li>Open <code>chrome://extensions</code>.</li>
+              <li>Turn on <strong>Developer mode</strong> (top right).</li>
+              <li>Click <strong>Load unpacked</strong> and select the <code>dist/</code> folder.</li>
+              <li>
+                Pin <strong>AI Form Filler</strong> from the puzzle-piece toolbar menu if you want
+                quick access.
+              </li>
+            </ol>
+            <p>
+              Click the toolbar icon to open the side panel — fill trigger, progress log, connection
+              settings, and behavior options.
+            </p>
+          </section>
+
+          <section class="step" id="mode">
+            <h3>Choose a fill mode</h3>
+            <p>Open <strong>Behavior</strong> and pick a <strong>Fill mode</strong>:</p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Mode</th>
+                    <th>When to use</th>
+                    <th>API key</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Hybrid</strong></td>
+                    <td>Default. Heuristics fill obvious fields; the LLM handles the rest</td>
+                    <td>Required</td>
+                  </tr>
+                  <tr>
+                    <td><strong>AI only</strong></td>
+                    <td>Everything goes to the model</td>
+                    <td>Required</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Heuristics only</strong></td>
+                    <td>Offline / no provider. Good for smoke checks</td>
+                    <td>Not required</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>For first-time setup, leave <strong>Hybrid</strong> selected.</p>
+          </section>
+
+          <section class="step" id="provider">
+            <h3>Connect a provider</h3>
+            <p>Needed for Hybrid or AI only:</p>
+            <ol>
+              <li>Expand <strong>Connection</strong>.</li>
+              <li>Choose a <strong>Provider</strong> (OpenAI is the default).</li>
+              <li>Paste an <strong>API key</strong> for that provider.</li>
+              <li>Click <strong>Test</strong>, then <strong>Save key</strong>.</li>
+              <li>Pick a <strong>Model</strong> (or keep the provider default).</li>
+              <li>
+                Optionally enable remembering the key across restarts, or encrypting keys with a
+                passphrase.
+              </li>
+            </ol>
+            <p>Click <strong>Save settings</strong> when you change provider, model, or behavior.</p>
+            <div class="note">
+              Keys never leave the extension background worker. The page you fill never sees them.
+            </div>
+          </section>
+
+          <section class="step" id="behavior">
+            <h3>Tune behavior</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Setting</th>
+                    <th>Suggested start</th>
+                    <th>What it does</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Value language</td>
+                    <td>Follow the page</td>
+                    <td>Match page locale, or force a BCP-47 tag</td>
+                  </tr>
+                  <tr>
+                    <td>Advance multi-step forms</td>
+                    <td>On</td>
+                    <td>Clicks Next / Continue after each step</td>
+                  </tr>
+                  <tr>
+                    <td>Maximum steps</td>
+                    <td>15</td>
+                    <td>Safety cap (hard max 50)</td>
+                  </tr>
+                  <tr>
+                    <td>Maximum rounds per step</td>
+                    <td>24</td>
+                    <td>Fill / repair passes per step</td>
+                  </tr>
+                  <tr>
+                    <td>Settle delay (ms)</td>
+                    <td>120</td>
+                    <td>Wait after writes for conditional fields</td>
+                  </tr>
+                  <tr>
+                    <td>Fill empty fields only</td>
+                    <td>On</td>
+                    <td>Skip fields that already have a value</td>
+                  </tr>
+                  <tr>
+                    <td>Skip password and payment</td>
+                    <td>Off by default</td>
+                    <td>Never fill or send those fields to the AI</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="note warn">
+              Turning <strong>Fill empty fields only</strong> off can send short snippets of existing
+              values (up to 60 characters) to the LLM.
+            </div>
+          </section>
+
+          <section class="step" id="fill">
+            <h3>Open a form and fill it</h3>
+            <ol>
+              <li>Navigate to a page with a form.</li>
+              <li>Open the side panel.</li>
+              <li>
+                Optionally type a <strong>Custom request</strong>, for example:
+                <ul>
+                  <li><code>Phone as 090-XXXX-XXXX</code></li>
+                  <li><code>User names in Japanese</code></li>
+                  <li><code>Use a Berlin shipping address</code></li>
+                </ul>
+              </li>
+              <li>Click <strong>Fill this page</strong>.</li>
+            </ol>
+            <p>
+              Watch the <strong>Progress</strong> log for scan, chunk, apply, and step-advance
+              messages.
+            </p>
+            <p>Other ways to start a fill (same saved settings):</p>
+            <ul>
+              <li>Right-click the page → <strong>Fill this form with AI</strong></li>
+              <li>Keyboard: <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd></li>
+            </ul>
+          </section>
+
+          <section class="step" id="wizard">
+            <h3>Multi-step forms end to end</h3>
+            <p>With auto-advance enabled:</p>
+            <ol>
+              <li>The extension fills the current step.</li>
+              <li>It waits for the DOM to settle (conditionals, validation).</li>
+              <li>It clicks the best forward control (Next / Continue / …).</li>
+              <li>
+                It detects the next step via a content fingerprint (visible fields + URL + step
+                indicator).
+              </li>
+              <li>
+                It carries identity values forward (email, name, phone, …) so confirmations match.
+              </li>
+              <li>
+                It stops when there is no safe next step, the step cap is hit, or only a final submit
+                remains.
+              </li>
+            </ol>
+            <div class="note">
+              <strong>Search / lookup fields:</strong> after filling a search-like control, the
+              extension waits for a results list or table and clicks the best matching row. Search
+              inputs are not blurred immediately so typeahead panels stay open.
+            </div>
+            <p>
+              Final-submit controls (Pay, Place order, Checkout) are <strong>not</strong> clicked by
+              default — review and submit yourself.
+            </p>
+            <p>
+              If Next fails due to validation errors, those messages are quoted back to the model for
+              one repair round, then Next is retried once.
+            </p>
+          </section>
+
+          <section class="step" id="tips">
+            <h3>Everyday tips</h3>
+            <ul>
+              <li>
+                Leave <strong>Custom request</strong> empty unless you need a specific format or
+                persona.
+              </li>
+              <li>
+                Prefer <strong>Hybrid</strong> for speed and cost; use <strong>AI only</strong> when
+                heuristics miss domain-specific fields.
+              </li>
+              <li>Use <strong>Heuristics only</strong> for a fully offline pass.</li>
+              <li>
+                If a field is stuck, raise <strong>Maximum rounds per step</strong> or add a custom
+                request that matches the page’s format hint.
+              </li>
+              <li>
+                Reload the extension on <code>chrome://extensions</code> after
+                <code>npm run build</code> if the side panel looks stale.
+              </li>
+              <li>
+                Restricted Chrome pages (<code>chrome://</code>, Web Store, etc.) cannot be scripted.
+              </li>
+            </ul>
+          </section>
+        </div>
+
+        <p>
+          More detail:
+          <a href="./configuration.html">configuration</a> ·
+          <a href="./features.html">features</a> ·
+          <a href="./security.html">security</a>
+        </p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        Documentation for
+        <a href="https://github.com/nobijoy/ai-form-filler" rel="noopener">nobijoy/ai-form-filler</a>
+      </p>
+    </footer>
+    <script src="./assets/site.js"></script>
+  </body>
+</html>

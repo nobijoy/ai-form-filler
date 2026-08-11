@@ -6,11 +6,12 @@ Chrome extension (Manifest V3) that fills web forms with realistic synthetic dat
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-6.x-646CFF.svg)](https://vitejs.dev/)
 
+**Docs & tutorials:** [https://nobijoy.github.io/ai-form-filler/](https://nobijoy.github.io/ai-form-filler/)
+
 ## Contents
 
 - [Overview](#overview)
 - [Capabilities](#capabilities)
-- [Tutorial: install and use](#tutorial-install-and-use)
 - [Side panel reference](#side-panel-reference)
 - [Architecture](#architecture)
 - [Fill workflow](#fill-workflow)
@@ -48,125 +49,7 @@ You bring your own API key. Keys stay in the extension service worker and are ne
 | Providers | OpenAI, Anthropic, Google AI Studio, xAI, Groq, OpenRouter, Cerebras |
 | Live progress | Streamed to the side panel while the run is in flight |
 
----
-
-## Tutorial: install and use
-
-This walkthrough takes you from a fresh clone to a filled multi-step form.
-
-### 1. Build the extension
-
-```bash
-npm install
-npm run build
-```
-
-The packaged extension lands in `dist/`.
-
-For day-to-day work you can keep a watch build running:
-
-```bash
-npm run dev
-```
-
-### 2. Load it in Chrome
-
-1. Open `chrome://extensions`.
-2. Turn on **Developer mode** (top right).
-3. Click **Load unpacked** and select the `dist/` folder from this repo.
-4. Pin **AI Form Filler** from the puzzle-piece toolbar menu if you want quick access.
-
-Click the toolbar icon to open the side panel. That panel is the main UI: fill trigger, progress log, connection settings, and behavior options.
-
-### 3. Choose a fill mode
-
-Open **Behavior** in the side panel and pick a **Fill mode**:
-
-| Mode | When to use | API key |
-| --- | --- | --- |
-| **Hybrid (heuristics + AI)** | Default. Local heuristics fill obvious fields; the LLM handles the rest | Required |
-| **AI only** | Everything goes to the model | Required |
-| **Heuristics only (no API key)** | Offline / no provider. Good for smoke checks, weaker on unusual labels | Not required |
-
-For first-time setup, leave **Hybrid** selected.
-
-### 4. Connect a provider (hybrid or AI only)
-
-1. Expand **Connection**.
-2. Choose a **Provider** (OpenAI is the default).
-3. Paste an **API key** for that provider.
-4. Click **Test** to verify the key, then **Save key**.
-5. Pick a **Model** from the list (or keep the provider default).
-6. Optionally enable:
-   - **Remember key across browser restarts** — keeps the key after you quit Chrome (on by default).
-   - **Encrypt stored keys with a passphrase** — wraps keys with AES-GCM; unlock after each browser restart.
-
-Click **Save settings** at the bottom when you change provider, model, or behavior options.
-
-Keys never leave the extension background worker. The page you fill never sees them.
-
-### 5. Tune behavior (recommended defaults)
-
-Still under **Behavior**:
-
-| Setting | Suggested start | What it does |
-| --- | --- | --- |
-| **Value language** | Follow the page | Generated values match the page locale (or force a BCP-47 tag with *Always use…*) |
-| **Advance through multi-step forms automatically** | On | Clicks Next / Continue after each step |
-| **Maximum steps** | 15 | Safety cap (hard max 50) |
-| **Maximum rounds per step** | 24 | How many fill/repair passes a step may use |
-| **Settle delay (ms)** | 120 | Extra wait after writes so conditional fields can appear |
-| **Fill empty fields only** | On | Skips fields that already have a value |
-| **Skip password and payment fields** | Off by default | When on, password/card fields are never filled and never sent to the AI |
-
-Turn **Skip password and payment fields** on if you are filling real product pages and do not want credentials or card numbers generated.
-
-Turning **Fill empty fields only** off can send short snippets of existing values (up to 60 characters) to the LLM — the panel warns you when that happens.
-
-### 6. Open a form and fill it
-
-1. Navigate to a page with a form.
-2. Open the side panel.
-3. Optionally type a **Custom request**, for example:
-   - `Phone as 090-XXXX-XXXX`
-   - `User names in Japanese`
-   - `Use a Berlin shipping address`
-4. Click **Fill this page**.
-
-Watch the **Progress** log. You should see scan, chunk, apply, and (on wizards) step-advance messages. When the run finishes, the status line reports how many fields and steps completed.
-
-**Other ways to start a fill** (same settings and custom request as last saved):
-
-- Right-click the page → **Fill this form with AI**
-- Keyboard: `Alt+Shift+F` (macOS: same chord)
-
-### 7. Multi-step forms end to end
-
-With auto-advance enabled:
-
-1. The extension fills the current step.
-2. It waits for the DOM to settle (conditional fields, validation).
-3. It clicks the best forward control (Next / Continue / …).
-4. It detects the next step via a content fingerprint (visible fields + URL + step indicator text).
-5. It carries identity values forward (email, name, phone, …) so confirmations match earlier answers.
-6. It stops when there is no safe next step, the step cap is hit, or only a final submit remains.
-
-**Search / lookup fields:** after filling a search-like control, the extension waits for a results list or table and clicks the best matching row (using the typed value and any quoted name in the custom request). Search inputs are not blurred immediately so typeahead panels stay open.  
-
-Final-submit controls (Pay, Place order, Checkout) are **not** clicked by default. The form is left filled for you to review and submit.
-
-If a Next click fails because the page shows validation errors, those messages are quoted back to the model for one repair round, then Next is retried once.
-
-### 8. Everyday tips
-
-- Leave **Custom request** empty unless you need a specific format or persona; defaults already produce coherent synthetic data.
-- Prefer **Hybrid** for speed and cost; use **AI only** when heuristics keep missing domain-specific fields.
-- Use **Heuristics only** when you have no key or want a fully offline pass.
-- If the log says the run is stuck on a field, raise **Maximum rounds per step** slightly or add a custom request that matches the page's format hint.
-- Reload the extension on `chrome://extensions` after `npm run build` if the side panel looks stale.
-- Restricted Chrome pages (`chrome://`, Web Store, etc.) cannot be scripted — use a normal http(s) tab.
-
----
+Step-by-step install and usage: [Tutorial](https://nobijoy.github.io/ai-form-filler/tutorial.html).
 
 ## Side panel reference
 
@@ -179,8 +62,6 @@ If a Next click fails because the page shows validation errors, those messages a
 | **Save settings** | Persists behavior and connection choices (keys are saved separately via **Save key**) |
 
 UI strings ship in English and German (`_locales/en`, `_locales/de`).
-
----
 
 ## Architecture
 
@@ -319,6 +200,8 @@ Forward controls are ranked by multilingual label markers, position, and members
 
 When a click does not change the fingerprint, the page is inspected for `aria-invalid`, `aria-errormessage`, and `role="alert"` text. Those messages are quoted back to the model as a `corrections` block for a repair round, then the click is retried once.
 
+**Search / lookup fields:** after filling a search-like control, the extension waits for a results list or table and clicks the best matching row (using the typed value and any quoted name in the custom request). Search inputs are not blurred immediately so typeahead panels stay open.
+
 ## Custom requests and language
 
 The side panel has a single free-text box, empty by default. Anything entered is injected into the prompt as a clearly delimited block:
@@ -390,6 +273,7 @@ Within a provider, a failed request walks the configured model, then the provide
 ```
 ai-form-filler/
 ├── manifest.config.ts        # MV3 manifest; provider origins + http(s) wildcards for injection
+├── docs/                     # GitHub Pages documentation site
 ├── _locales/{en,de}/         # UI strings
 └── src/
     ├── background/

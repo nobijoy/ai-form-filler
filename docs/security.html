@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Security — AI Form Filler</title>
+    <meta
+      name="description"
+      content="How AI Form Filler stores API keys, encrypts them, and what the extension cannot do."
+    />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./assets/site.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="nav-inner">
+        <a class="brand" href="./index.html">
+          <img src="./assets/icon.svg" alt="" width="32" height="32" />
+          AI Form Filler
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          Menu
+        </button>
+        <ul class="nav-links" id="site-nav">
+          <li><a data-nav href="./index.html">Home</a></li>
+          <li><a data-nav href="./tutorial.html">Tutorial</a></li>
+          <li><a data-nav href="./features.html">Features</a></li>
+          <li><a data-nav href="./configuration.html">Config</a></li>
+          <li><a data-nav href="./architecture.html">Architecture</a></li>
+          <li><a data-nav href="./security.html">Security</a></li>
+          <li>
+            <a class="github" href="https://github.com/nobijoy/ai-form-filler" rel="noopener"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+      </div>
+    </header>
+
+    <main>
+      <article class="prose">
+        <header class="page-head">
+          <h1>Security and storage</h1>
+          <p>Where keys live, what the page can see, and known limitations.</p>
+        </header>
+
+        <h2 id="keys">API keys</h2>
+        <ul>
+          <li>
+            Keys live in extension storage and are read only by the service worker. Web pages —
+            including the page being filled — never receive them.
+          </li>
+          <li>
+            The background message router rejects senders whose <code>id</code> is not this
+            extension. Vault and key mutations are limited to extension pages (not content scripts).
+          </li>
+          <li>
+            The worker reports key <strong>presence</strong> and encryption state to the UI, never
+            key material. Nothing key-derived is logged.
+          </li>
+          <li>
+            With <code>rememberKeyAcrossRestarts: false</code>, keys sit in a separate local bucket
+            stamped with a <code>chrome.storage.session</code> browser-session id and are cleared on
+            <code>onStartup</code> / <code>onInstalled</code>.
+          </li>
+          <li>
+            With <code>encryptKeys</code> enabled, keys are wrapped with AES-GCM under a
+            PBKDF2-derived key (250k iterations, SHA-256, random per-profile salt). Passphrases must
+            be at least 8 characters. The derived key is held in
+            <code>chrome.storage.session</code> (survives service-worker restarts, not a browser
+            restart). Off by default.
+          </li>
+          <li>
+            Anyone with access to the browser profile can use a stored key. Encryption raises the bar
+            for at-rest access; it is not a defence against a compromised profile in use.
+          </li>
+        </ul>
+
+        <h2 id="runtime">Runtime behaviour</h2>
+        <ul>
+          <li>
+            Manual fills start from an explicit user action (side panel, context menu, or command).
+            Multi-step wizards may auto-resume after navigation from a short-lived session
+            checkpoint, but only on the same tab that started the run.
+          </li>
+          <li>
+            Password and payment fields can be skipped via
+            <code>excludeSensitiveFields</code> (off by default). Turning off “fill empty only”
+            shows a warning that existing values may be sent to the LLM.
+          </li>
+          <li>
+            Content scripts run with <code>all_frames: false</code> on purpose: the extension stays
+            out of third-party payment widgets and cross-origin iframes.
+          </li>
+          <li>
+            Only the selected provider is contacted unless you opt into fallbacks. Provider base URLs
+            are pinned in code before any authenticated fetch.
+          </li>
+        </ul>
+
+        <h2 id="limitations">Limitations</h2>
+        <ul>
+          <li>Forms inside cross-origin iframes are not filled.</li>
+          <li>
+            Chrome restricted URLs (<code>chrome://</code>, the Web Store, and similar) cannot host
+            content scripts.
+          </li>
+          <li>
+            Final checkout / pay buttons are not clicked by default; review and submit yourself.
+          </li>
+          <li>
+            Heuristics-only mode will miss many domain-specific or poorly labeled fields.
+          </li>
+          <li>
+            Generated data is synthetic test data, not a substitute for real user consent or
+            production PII handling.
+          </li>
+        </ul>
+
+        <p>
+          Configure providers in <a href="./configuration.html">configuration</a>, or start with the
+          <a href="./tutorial.html">tutorial</a>.
+        </p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        Documentation for
+        <a href="https://github.com/nobijoy/ai-form-filler" rel="noopener">nobijoy/ai-form-filler</a>
+      </p>
+    </footer>
+    <script src="./assets/site.js"></script>
+  </body>
+</html>

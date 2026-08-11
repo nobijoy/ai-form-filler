@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Architecture — AI Form Filler</title>
+    <meta
+      name="description"
+      content="Runtime contexts, fill workflow, reactive-form handling, and project layout for AI Form Filler."
+    />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./assets/site.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="nav-inner">
+        <a class="brand" href="./index.html">
+          <img src="./assets/icon.svg" alt="" width="32" height="32" />
+          AI Form Filler
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          Menu
+        </button>
+        <ul class="nav-links" id="site-nav">
+          <li><a data-nav href="./index.html">Home</a></li>
+          <li><a data-nav href="./tutorial.html">Tutorial</a></li>
+          <li><a data-nav href="./features.html">Features</a></li>
+          <li><a data-nav href="./configuration.html">Config</a></li>
+          <li><a data-nav href="./architecture.html">Architecture</a></li>
+          <li><a data-nav href="./security.html">Security</a></li>
+          <li>
+            <a class="github" href="https://github.com/nobijoy/ai-form-filler" rel="noopener"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+      </div>
+    </header>
+
+    <main>
+      <article class="prose-wide">
+        <header class="page-head">
+          <h1>Architecture</h1>
+          <p>
+            Content script owns the DOM; the service worker owns credentials and HTTP; the side panel
+            is configuration and progress.
+          </p>
+        </header>
+
+        <ul class="toc">
+          <li><a href="#contexts">Contexts</a></li>
+          <li><a href="#diagram">Diagram</a></li>
+          <li><a href="#workflow">Fill workflow</a></li>
+          <li><a href="#reactive">Reactive forms</a></li>
+          <li><a href="#layout">Project layout</a></li>
+          <li><a href="#dev">Development</a></li>
+        </ul>
+
+        <h2 id="contexts">Runtime contexts</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Context</th>
+                <th>Entry point</th>
+                <th>Responsibility</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Content script</td>
+                <td><code>src/content/index.ts</code></td>
+                <td>Scans, applies, validates, navigates, streams progress</td>
+              </tr>
+              <tr>
+                <td>Service worker</td>
+                <td><code>src/background/index.ts</code></td>
+                <td>Message router; holds keys; builds prompts; all network calls</td>
+              </tr>
+              <tr>
+                <td>Side panel</td>
+                <td><code>src/sidepanel/main.ts</code></td>
+                <td>Provider config, custom request, run trigger, live log</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          The page never sees an API key: the content script asks the worker for values and receives
+          only the values back.
+        </p>
+
+        <h2 id="diagram">System diagram</h2>
+        <pre class="mermaid">
+flowchart TB
+  subgraph Page["Host page"]
+    DOM[DOM / forms]
+  end
+
+  subgraph CS["Content script"]
+    Entry[index.ts]
+    Orch[fillOrchestrator]
+    RunState["runState: step epochs"]
+    FieldId["fieldId: content-hash sids"]
+    Scan[scan]
+    Widgets["widgets: native + aria adapters"]
+    Settle["settle: MutationObserver"]
+    Validate[validate]
+    Nav[navigation]
+  end
+
+  subgraph BG["Service worker"]
+    Router[message router]
+    LLM[llm]
+    Adapters["provider adapters"]
+    Vault["keyVault: AES-GCM"]
+    Store[storage]
+  end
+
+  subgraph SP["Side panel"]
+    Panel[main.ts]
+    Log[progress log]
+  end
+
+  Panel -->|RUN_FILL| Entry
+  Entry --> Orch
+  Orch --> RunState
+  Orch --> Scan
+  Scan --> FieldId
+  Scan --> Widgets
+  Widgets --> DOM
+  Orch --> Settle
+  Orch --> Validate
+  Orch --> Nav
+  Nav --> DOM
+  Orch -->|RUN_PROGRESS| Log
+  Orch <-->|LLM_FILL| Router
+  Router --> LLM
+  LLM --> Adapters
+  Router --> Store
+  Store --> Vault
+  Adapters -->|HTTPS| Cloud[(Provider APIs)]
+        </pre>
+
+        <h2 id="workflow">Fill workflow</h2>
+        <pre class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant SP as Side panel
+  participant CS as Content script
+  participant DOM as Page DOM
+  participant BG as Service worker
+  participant API as Provider
+
+  U->>SP: Fill this page
+  SP->>CS: RUN_FILL
+  CS->>BG: GET_SETTINGS
+  BG-->>CS: settings (no key material)
+
+  loop Each form step
+    CS->>CS: beginEpoch, fresh applied map
+    CS->>DOM: scan via widget adapters
+    CS->>CS: chunk by fieldset / role=group / heading
+    loop Each chunk, bounded by maxRounds
+      CS->>BG: LLM_FILL(snapshot + run context)
+      BG->>API: chat completion
+      API-->>BG: JSON values
+      BG-->>CS: values
+      CS->>CS: validate, resolve option labels
+      CS->>DOM: apply via native setters + events
+      CS->>DOM: waitForDomQuiet (reveals conditionals)
+      CS-->>SP: RUN_PROGRESS
+    end
+    CS->>DOM: click next, compare field fingerprint
+    alt Page reported validation errors
+      CS->>BG: LLM_FILL(corrections)
+      CS->>DOM: repair, click next again
+    end
+  end
+
+  CS-->>SP: fields filled, steps completed
+        </pre>
+
+        <h2 id="reactive">Why reactive forms need special handling</h2>
+        <p><strong>1. Frameworks revert direct writes.</strong> React installs an instance-level
+          <code>value</code> property. Assigning <code>el.value = x</code> updates that tracker too,
+          so the following <code>input</code> event looks like a no-op. Writes go through the
+          prototype’s setter instead, then the result is verified.</p>
+        <pre><code>export function setNativeValue(el: HTMLElement, value: string): void {
+  const descriptor =
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el) as object, "value") ??
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  if (descriptor?.set) descriptor.set.call(el, value);
+  else (el as HTMLInputElement).value = value;
+}</code></pre>
+
+        <p>
+          <strong>2. DOM nodes are recycled between steps.</strong> React often reuses the same
+          <code>&lt;input&gt;</code> elements across wizard steps. Synthetic ids are
+          <code>s{epoch}_{hash}</code>; the epoch increments on every step change so a recycled node
+          cannot collide with a previous step’s applied map. Framework-generated ids
+          (<code>:r3:</code>, <code>mui-1234</code>, <code>radix-…</code>) are excluded from the hash.
+        </p>
+
+        <p>
+          <strong>3. Option values are not option labels.</strong> For
+          <code>&lt;option value="13"&gt;Tokyo&lt;/option&gt;</code>, prompts carry
+          <code>[value, label]</code> pairs. Resolution matches from strictest to loosest — exact
+          value, exact label, normalized, then unique containment — and refuses ambiguous loose
+          matches.
+        </p>
+
+        <h2 id="layout">Project layout</h2>
+        <pre><code>ai-form-filler/
+├── manifest.config.ts
+├── _locales/{en,de}/
+├── docs/                     # This site (GitHub Pages)
+└── src/
+    ├── background/           # Router, LLM, storage, key vault
+    ├── content/              # Orchestrator, scan, apply, navigation, widgets
+    ├── shared/               # Types, providers, heuristics
+    └── sidepanel/            # UI</code></pre>
+
+        <h2 id="dev">Development</h2>
+        <pre><code>npm install
+npm run build      # tsc --noEmit && vite build
+npm run dev        # rebuild on change
+npm run check      # typecheck only</code></pre>
+        <p>
+          Load <code>dist/</code> via <code>chrome://extensions</code> → <strong>Load unpacked</strong>.
+        </p>
+        <p>
+          New widget families: implement <code>match</code> / <code>describe</code> /
+          <code>read</code> / <code>apply</code> in <code>src/content/widgets/</code> and register in
+          <code>widgets/index.ts</code>. ARIA adapters are registered before native ones.
+        </p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        Documentation for
+        <a href="https://github.com/nobijoy/ai-form-filler" rel="noopener">nobijoy/ai-form-filler</a>
+      </p>
+    </footer>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      window.mermaid = mermaid;
+      mermaid.initialize({
+        startOnLoad: true,
+        theme: "neutral",
+        securityLevel: "loose",
+        flowchart: { curve: "basis" },
+      });
+    </script>
+    <script src="./assets/site.js"></script>
+  </body>
+</html>

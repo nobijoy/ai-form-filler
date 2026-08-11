@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Configuration — AI Form Filler</title>
+    <meta
+      name="description"
+      content="Side panel reference, settings defaults, and LLM providers for AI Form Filler."
+    />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./assets/site.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="nav-inner">
+        <a class="brand" href="./index.html">
+          <img src="./assets/icon.svg" alt="" width="32" height="32" />
+          AI Form Filler
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          Menu
+        </button>
+        <ul class="nav-links" id="site-nav">
+          <li><a data-nav href="./index.html">Home</a></li>
+          <li><a data-nav href="./tutorial.html">Tutorial</a></li>
+          <li><a data-nav href="./features.html">Features</a></li>
+          <li><a data-nav href="./configuration.html">Config</a></li>
+          <li><a data-nav href="./architecture.html">Architecture</a></li>
+          <li><a data-nav href="./security.html">Security</a></li>
+          <li>
+            <a class="github" href="https://github.com/nobijoy/ai-form-filler" rel="noopener"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+      </div>
+    </header>
+
+    <main>
+      <article class="prose-wide">
+        <header class="page-head">
+          <h1>Configuration</h1>
+          <p>Side panel layout, persisted settings, and supported LLM providers.</p>
+        </header>
+
+        <ul class="toc">
+          <li><a href="#side-panel">Side panel</a></li>
+          <li><a href="#settings">Settings</a></li>
+          <li><a href="#providers">Providers</a></li>
+        </ul>
+
+        <h2 id="side-panel">Side panel reference</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Section</th>
+                <th>Controls</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Run</strong></td>
+                <td>Custom request textarea, <strong>Fill this page</strong>, status line</td>
+              </tr>
+              <tr>
+                <td><strong>Progress</strong></td>
+                <td>Live log of the current/last run, <strong>Clear</strong></td>
+              </tr>
+              <tr>
+                <td><strong>Connection</strong></td>
+                <td>
+                  Provider, API key (Test / Save / Remove), remember &amp; encrypt options, model
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Behavior</strong></td>
+                <td>
+                  Fill mode, language, auto-next, step/round/settle limits, empty-only, sensitive
+                  skip
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Save settings</strong></td>
+                <td>
+                  Persists behavior and connection choices (keys are saved separately via
+                  <strong>Save key</strong>)
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>UI strings ship in English and German (<code>_locales/en</code>, <code>_locales/de</code>).</p>
+
+        <h2 id="settings">Settings</h2>
+        <p>
+          Settings live in <code>chrome.storage.local</code> under <code>aff_settings</code> and are
+          sanitized on every read.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Default</th>
+                <th>Meaning</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>provider</code> / <code>baseUrl</code> / <code>model</code></td>
+                <td>OpenAI / <code>https://api.openai.com/v1</code> / <code>gpt-4o-mini</code></td>
+                <td>Selected provider, endpoint, and model</td>
+              </tr>
+              <tr>
+                <td><code>fillMode</code></td>
+                <td><code>hybrid</code></td>
+                <td><code>hybrid</code>, <code>ai_only</code>, or <code>heuristics_only</code></td>
+              </tr>
+              <tr>
+                <td><code>fillLanguage</code> / <code>fillLocaleOverride</code></td>
+                <td><code>auto</code> / empty</td>
+                <td>Follow the page, or force a BCP-47 locale</td>
+              </tr>
+              <tr>
+                <td><code>customRequest</code></td>
+                <td>empty</td>
+                <td>Free-text user rules</td>
+              </tr>
+              <tr>
+                <td><code>maxRounds</code></td>
+                <td><code>24</code> (range 1–60)</td>
+                <td>Chunk attempts per step</td>
+              </tr>
+              <tr>
+                <td><code>settleMs</code></td>
+                <td><code>120</code> (0–3000)</td>
+                <td>Extra delay after writes, on top of mutation-based settling</td>
+              </tr>
+              <tr>
+                <td><code>autoNextEnabled</code> / <code>autoNextMaxSteps</code></td>
+                <td><code>true</code> / <code>15</code> (cap 50)</td>
+                <td>Automatic advancing</td>
+              </tr>
+              <tr>
+                <td><code>fillEmptyOnly</code></td>
+                <td><code>true</code></td>
+                <td>Skip fields that already hold a value</td>
+              </tr>
+              <tr>
+                <td><code>excludeSensitiveFields</code></td>
+                <td><code>false</code></td>
+                <td>Skip password and payment (<code>cc-*</code>) fields</td>
+              </tr>
+              <tr>
+                <td><code>rememberKeyAcrossRestarts</code></td>
+                <td><code>true</code></td>
+                <td>Persist keys, or drop them on browser start</td>
+              </tr>
+              <tr>
+                <td><code>fallbackProviders</code></td>
+                <td><code>[]</code></td>
+                <td>Opt-in providers to try if the selected one fails</td>
+              </tr>
+              <tr>
+                <td><code>encryptKeys</code></td>
+                <td><code>false</code></td>
+                <td>Encrypt stored keys at rest behind a passphrase</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="providers">LLM providers</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Kind</th>
+                <th>Default model</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>OpenAI</td>
+                <td>OpenAI-compatible</td>
+                <td><code>gpt-4o-mini</code></td>
+              </tr>
+              <tr>
+                <td>Anthropic</td>
+                <td>Anthropic messages</td>
+                <td><code>claude-3-5-haiku-latest</code></td>
+              </tr>
+              <tr>
+                <td>Google AI Studio</td>
+                <td>OpenAI-compatible</td>
+                <td><code>gemini-2.0-flash</code></td>
+              </tr>
+              <tr>
+                <td>xAI</td>
+                <td>OpenAI-compatible</td>
+                <td><code>grok-3-mini</code></td>
+              </tr>
+              <tr>
+                <td>Groq Cloud</td>
+                <td>OpenAI-compatible</td>
+                <td><code>llama-3.3-70b-versatile</code></td>
+              </tr>
+              <tr>
+                <td>OpenRouter</td>
+                <td>OpenAI-compatible</td>
+                <td><code>openrouter/auto</code></td>
+              </tr>
+              <tr>
+                <td>Cerebras</td>
+                <td>OpenAI-compatible</td>
+                <td><code>llama-3.3-70b</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Anthropic uses its own adapter (<code>POST /v1/messages</code>,
+          <code>x-api-key</code>, top-level <code>system</code>, block-array content). Only the
+          selected provider is contacted unless you opt into fallbacks — a fallback means shipping
+          form contents to another vendor.
+        </p>
+        <p>
+          Within a provider, a failed request walks the configured model, then the default, then the
+          fallback list, and can step down output-token budgets when a request is rejected as too
+          large. Auth failures stop the walk immediately.
+        </p>
+
+        <p>
+          See also <a href="./security.html">security and storage</a> and the
+          <a href="./tutorial.html">tutorial</a>.
+        </p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        Documentation for
+        <a href="https://github.com/nobijoy/ai-form-filler" rel="noopener">nobijoy/ai-form-filler</a>
+      </p>
+    </footer>
+    <script src="./assets/site.js"></script>
+  </body>
+</html>

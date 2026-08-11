@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Form Filler — Docs</title>
+    <meta
+      name="description"
+      content="Chrome extension that fills reactive and multi-step web forms with realistic AI-generated test data."
+    />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./assets/site.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="nav-inner">
+        <a class="brand" href="./index.html">
+          <img src="./assets/icon.svg" alt="" width="32" height="32" />
+          AI Form Filler
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          Menu
+        </button>
+        <ul class="nav-links" id="site-nav">
+          <li><a data-nav href="./index.html">Home</a></li>
+          <li><a data-nav href="./tutorial.html">Tutorial</a></li>
+          <li><a data-nav href="./features.html">Features</a></li>
+          <li><a data-nav href="./configuration.html">Config</a></li>
+          <li><a data-nav href="./architecture.html">Architecture</a></li>
+          <li><a data-nav href="./security.html">Security</a></li>
+          <li>
+            <a class="github" href="https://github.com/nobijoy/ai-form-filler" rel="noopener"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <h1 class="hero-brand">
+          <img src="./assets/icon.svg" alt="" width="64" height="64" />
+          AI Form Filler
+        </h1>
+        <h2>Fill reactive and multi-step forms with realistic synthetic data.</h2>
+        <p class="lede">
+          Built for framework-controlled inputs that revert naive writes, and wizards whose later
+          fields must match earlier answers. Bring your own LLM key.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="./tutorial.html">Start the tutorial</a>
+          <a
+            class="btn btn-ghost"
+            href="https://github.com/nobijoy/ai-form-filler"
+            rel="noopener"
+            >View on GitHub</a
+          >
+        </div>
+      </section>
+
+      <section class="prose-wide" style="margin-top: -1rem; padding-bottom: 2rem">
+        <h2 style="margin-top: 0">What it handles</h2>
+        <div class="feature-grid">
+          <article class="feature-card">
+            <h3>Reactive frameworks</h3>
+            <p>Native property setters and real events so React, Vue, Svelte, and Angular keep the value.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Multi-step wizards</h3>
+            <p>Auto-advance with content fingerprints and cross-step identity for confirmations.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Hybrid or offline</h3>
+            <p>Heuristics plus AI by default — or heuristics-only when you have no API key.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Your keys stay local</h3>
+            <p>Credentials live in the service worker. The page being filled never sees them.</p>
+          </article>
+        </div>
+        <p style="margin-top: 1.75rem">
+          Next: follow the <a href="./tutorial.html">install-and-use tutorial</a>, skim
+          <a href="./features.html">features</a>, or dig into
+          <a href="./architecture.html">architecture</a>.
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        Documentation for
+        <a href="https://github.com/nobijoy/ai-form-filler" rel="noopener">nobijoy/ai-form-filler</a>
+        · Manifest V3 Chrome extension
+      </p>
+    </footer>
+    <script src="./assets/site.js"></script>
+  </body>
+</html>

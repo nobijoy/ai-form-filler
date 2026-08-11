@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Features — AI Form Filler</title>
+    <meta
+      name="description"
+      content="Capabilities of AI Form Filler: fill modes, widgets, multi-step navigation, custom requests, and providers."
+    />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./assets/site.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="nav-inner">
+        <a class="brand" href="./index.html">
+          <img src="./assets/icon.svg" alt="" width="32" height="32" />
+          AI Form Filler
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          Menu
+        </button>
+        <ul class="nav-links" id="site-nav">
+          <li><a data-nav href="./index.html">Home</a></li>
+          <li><a data-nav href="./tutorial.html">Tutorial</a></li>
+          <li><a data-nav href="./features.html">Features</a></li>
+          <li><a data-nav href="./configuration.html">Config</a></li>
+          <li><a data-nav href="./architecture.html">Architecture</a></li>
+          <li><a data-nav href="./security.html">Security</a></li>
+          <li>
+            <a class="github" href="https://github.com/nobijoy/ai-form-filler" rel="noopener"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+      </div>
+    </header>
+
+    <main>
+      <article class="prose-wide">
+        <header class="page-head">
+          <h1>Features</h1>
+          <p>What the extension can fill, how runs are triggered, and how wizards stay coherent.</p>
+        </header>
+
+        <h2 id="capabilities">Capabilities</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Area</th>
+                <th>Behavior</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Fill modes</td>
+                <td>
+                  <strong>Hybrid</strong> (heuristics then AI), <strong>AI only</strong>, or
+                  <strong>Heuristics only</strong> (no API key)
+                </td>
+              </tr>
+              <tr>
+                <td>Triggers</td>
+                <td>
+                  Side panel, context menu (“Fill this form with AI”), keyboard
+                  (<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd>)
+                </td>
+              </tr>
+              <tr>
+                <td>Native controls</td>
+                <td>Text inputs, textareas, selects, radio groups, checkboxes</td>
+              </tr>
+              <tr>
+                <td>ARIA widgets</td>
+                <td>
+                  <code>checkbox</code>, <code>switch</code>, <code>radiogroup</code>,
+                  <code>combobox</code> / <code>listbox</code>, <code>contenteditable</code>
+                </td>
+              </tr>
+              <tr>
+                <td>Multi-step forms</td>
+                <td>Automatic advancing with content-fingerprint step detection, up to 50 steps</td>
+              </tr>
+              <tr>
+                <td>Conditional fields</td>
+                <td>
+                  <code>MutationObserver</code> settling picks up fields revealed by a checkbox or
+                  select
+                </td>
+              </tr>
+              <tr>
+                <td>Cross-step identity</td>
+                <td>Email, name, phone, and other slots stay coherent across the whole run</td>
+              </tr>
+              <tr>
+                <td>Error recovery</td>
+                <td>Reads page validation messages and re-asks the model with them quoted</td>
+              </tr>
+              <tr>
+                <td>Custom requests</td>
+                <td>One free-text box for user rules, injected at highest prompt priority</td>
+              </tr>
+              <tr>
+                <td>Multilingual</td>
+                <td>
+                  Follows the page language, or an explicit BCP-47 override, with per-field
+                  <code>lang</code>
+                </td>
+              </tr>
+              <tr>
+                <td>Providers</td>
+                <td>OpenAI, Anthropic, Google AI Studio, xAI, Groq, OpenRouter, Cerebras</td>
+              </tr>
+              <tr>
+                <td>Live progress</td>
+                <td>Streamed to the side panel while the run is in flight</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="multi-step">Multi-step navigation</h2>
+        <p>
+          Step change is detected by a <strong>content fingerprint</strong> of the visible field set
+          (labels, kinds, option counts) plus URL and active step-indicator text. Synthetic field ids
+          are deliberately not part of it.
+        </p>
+        <p>
+          Forward controls are ranked by multilingual label markers, position, and membership of the
+          active form; back, cancel, and reset controls are scored out. Final-submit controls (pay,
+          place order, checkout) are not clicked by default — the run stops with the form filled.
+        </p>
+        <p>
+          When a click does not change the fingerprint, the page is inspected for
+          <code>aria-invalid</code>, <code>aria-errormessage</code>, and
+          <code>role="alert"</code> text. Those messages are quoted back to the model for a repair
+          round, then the click is retried once.
+        </p>
+
+        <h2 id="custom-requests">Custom requests and language</h2>
+        <p>
+          The side panel has a single free-text box, empty by default. Anything entered is injected
+          into the prompt as a clearly delimited block:
+        </p>
+        <pre><code>USER RULES (highest priority, override anything above that conflicts):
+Phone as 090-XXXX-XXXX. User names in Japanese.</code></pre>
+        <p>It applies uniformly across every chunk and navigation call on a long form.</p>
+        <p>Language resolution, most specific first:</p>
+        <ol>
+          <li>A field’s own <code>lang</code> attribute</li>
+          <li>An explicit BCP-47 override when <strong>Value language</strong> is <em>Always use…</em></li>
+          <li>The page’s <code>&lt;html lang&gt;</code>, otherwise the browser locale</li>
+        </ol>
+
+        <p>
+          Ready to try it?
+          <a href="./tutorial.html">Follow the tutorial</a> or set options in
+          <a href="./configuration.html">configuration</a>.
+        </p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        Documentation for
+        <a href="https://github.com/nobijoy/ai-form-filler" rel="noopener">nobijoy/ai-form-filler</a>
+      </p>
+    </footer>
+    <script src="./assets/site.js"></script>
+  </body>
+</html>

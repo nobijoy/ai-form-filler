@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <!-- Rounded app tile -->
+  <rect width="128" height="128" rx="28" fill="#2B5CD9"/>
+
+  <!-- Form card -->
+  <rect x="28" y="30" width="72" height="72" rx="12" fill="#FFFFFF"/>
+
+  <!-- Row 1: filled -->
+  <rect x="40" y="46" width="14" height="8" rx="3" fill="#2B5CD9"/>
+  <rect x="58" y="46" width="30" height="8" rx="3" fill="#7BA3FF"/>
+
+  <!-- Row 2: filled -->
+  <rect x="40" y="62" width="14" height="8" rx="3" fill="#2B5CD9"/>
+  <rect x="58" y="62" width="30" height="8" rx="3" fill="#7BA3FF"/>
+
+  <!-- Row 3: empty field being filled -->
+  <rect x="40" y="78" width="14" height="8" rx="3" fill="#2B5CD9"/>
+  <rect x="58" y="78" width="30" height="8" rx="3" stroke="#2B5CD9" stroke-width="2.5" fill="none"/>
+
+  <!-- AI spark -->
+  <path
+    fill="#FFFFFF"
+    d="M102 22c.6 4.8 2.4 8.2 7.2 9.6-4.8 1.4-6.6 4.8-7.2 9.6-.6-4.8-2.4-8.2-7.2-9.6 4.8-1.4 6.6-4.8 7.2-9.6Z"
+  />
+  <path
+    fill="#FFFFFF"
+    opacity="0.9"
+    d="M88 34c.35 2.6 1.3 4.4 3.9 5.15-2.6.75-3.55 2.55-3.9 5.15-.35-2.6-1.3-4.4-3.9-5.15 2.6-.75 3.55-2.55 3.9-5.15Z"
+  />
+</svg>
