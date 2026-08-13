@@ -287,6 +287,39 @@ footer.site-footer a {
   animation: rise 0.7s ease 0.24s both;
 }
 
+.keys-banner {
+  position: relative;
+  max-width: 42rem;
+  margin: 0.25rem 0 0;
+  padding: 1.05rem 1.2rem 1.15rem;
+  background: rgba(15, 118, 110, 0.1);
+  border: 1px solid rgba(15, 118, 110, 0.28);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  animation: rise 0.7s ease 0.32s both;
+}
+
+.keys-banner h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1.15rem;
+  color: var(--ok);
+}
+
+.keys-banner p {
+  margin: 0 0 0.85rem;
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.keys-banner ul {
+  margin: 0;
+  padding-left: 1.15rem;
+}
+
+.keys-banner a {
+  font-weight: 700;
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -401,6 +434,13 @@ h3 {
   scroll-margin-top: calc(var(--nav-h) + 1rem);
 }
 
+h4 {
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  margin: 1.35rem 0 0.45rem;
+  scroll-margin-top: calc(var(--nav-h) + 1rem);
+}
+
 p {
   margin: 0 0 1rem;
 }
@@ -446,6 +486,10 @@ strong {
   gap: 0.65rem;
 }
 
+.step h4 {
+  margin-top: 1.25rem;
+}
+
 .step h3::before {
   content: counter(step);
   display: inline-flex;
@@ -474,6 +518,11 @@ strong {
 .note.warn {
   border-left-color: var(--warn);
   background: rgba(180, 83, 9, 0.08);
+}
+
+.note.ok {
+  border-left-color: var(--ok);
+  background: rgba(15, 118, 110, 0.08);
 }
 
 .feature-grid {

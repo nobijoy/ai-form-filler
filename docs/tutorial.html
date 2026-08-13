@@ -49,9 +49,20 @@
           </p>
         </header>
 
+        <div class="note ok">
+          <strong>You do not need a paid OpenAI or Anthropic account.</strong>
+          <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
+          and
+          <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Groq Cloud</a>
+          both issue a free API key. Their free tiers are enough for typical extension use (filling
+          forms while you test). No credit card is required. See
+          <a href="#free-keys">how to get a free key</a> below.
+        </div>
+
         <ul class="toc">
           <li><a href="#mode">Fill mode</a></li>
-          <li><a href="#provider">Provider</a></li>
+          <li><a href="#free-keys">Free API key</a></li>
+          <li><a href="#provider">Connect it</a></li>
           <li><a href="#behavior">Behavior</a></li>
           <li><a href="#fill">Fill a page</a></li>
           <li><a href="#wizard">Multi-step</a></li>
@@ -93,15 +104,97 @@
             <p>For first-time setup, leave <strong>Hybrid</strong> selected.</p>
           </section>
 
+          <section class="step" id="free-keys">
+            <h3>Get a free API key</h3>
+            <p>
+              Hybrid and AI-only modes need a key from <em>some</em> provider. Pick one of the free
+              options below — you do not have to pay for OpenAI or Anthropic to use this extension.
+            </p>
+
+            <h4 id="google-key">Google AI Studio (recommended)</h4>
+            <p>
+              Gemini models via
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer"
+                >aistudio.google.com/apikey</a
+              >. Free tier, no credit card.
+            </p>
+            <ol>
+              <li>
+                Open
+                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer"
+                  >Google AI Studio → API keys</a
+                >.
+              </li>
+              <li>Sign in with a Google account and accept the terms if prompted.</li>
+              <li>Click <strong>Create API key</strong>.</li>
+              <li>
+                Create a key in a new project (simplest), or pick an existing Google Cloud project.
+                Billing is not required for the free Gemini API quota.
+              </li>
+              <li>Copy the key and keep it private. You can reveal it again later from the same page.</li>
+            </ol>
+            <div class="note ok">
+              <strong>Recommended model:</strong> after you connect this key, set
+              <strong>Model</strong> to <strong>Gemini 3.1 Flash</strong>
+              (<code>gemini-3.1-flash</code>). It is the best starting point for this extension —
+              faster, fewer fill mistakes, and still on the free tier.
+            </div>
+
+            <h4 id="groq-key">Groq Cloud</h4>
+            <p>
+              Fast open-source models via
+              <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer"
+                >console.groq.com/keys</a
+              >. Free tier, no credit card. For testing, keep
+              <strong>Llama 3.3 70B Versatile</strong> (<code>llama-3.3-70b-versatile</code>) — it is
+              accurate enough for forms and stays within Groq’s free limits.
+            </p>
+            <ol>
+              <li>
+                Open
+                <a href="https://console.groq.com/" target="_blank" rel="noopener noreferrer"
+                  >console.groq.com</a
+                >
+                and sign up with email, Google, or GitHub.
+              </li>
+              <li>
+                Go to
+                <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer"
+                  >API Keys</a
+                >
+                in the sidebar.
+              </li>
+              <li>Click <strong>Create API Key</strong>, give it a name (for example <code>ai-form-filler</code>).</li>
+              <li>
+                Copy the key immediately. Groq shows the full key only once — if you close the dialog
+                without copying, create a new key.
+              </li>
+            </ol>
+
+            <div class="note">
+              Free quotas and rate limits can change. For filling a handful of forms while you test,
+              either provider is enough. If you later hit a rate limit, wait a minute and run fill
+              again, or switch to the other free provider.
+            </div>
+          </section>
+
           <section class="step" id="provider">
-            <h3>Connect a provider</h3>
+            <h3>Connect it in the side panel</h3>
             <p>Needed for Hybrid or AI only:</p>
             <ol>
               <li>Expand <strong>Connection</strong>.</li>
-              <li>Choose a <strong>Provider</strong> (OpenAI is the default).</li>
-              <li>Paste an <strong>API key</strong> for that provider.</li>
+              <li>
+                Choose a <strong>Provider</strong>. For a free key, pick
+                <strong>Google AI Studio</strong> or <strong>Groq Cloud</strong> (OpenAI is the
+                catalog default, but it is paid).
+              </li>
+              <li>Paste the <strong>API key</strong> you copied above.</li>
               <li>Click <strong>Test</strong>, then <strong>Save key</strong>.</li>
-              <li>Pick a <strong>Model</strong> (or keep the provider default).</li>
+              <li>
+                Pick a <strong>Model</strong>. For Google AI Studio choose
+                <strong>Gemini 3.1 Flash</strong> (do not leave an older Flash default if you see
+                one). For Groq, use <strong>Llama 3.3 70B Versatile</strong>.
+              </li>
               <li>
                 Optionally enable remembering the key across restarts, or encrypting keys with a
                 passphrase.
@@ -238,7 +331,8 @@
               </li>
               <li>
                 Prefer <strong>Hybrid</strong> for speed and cost; use <strong>AI only</strong> when
-                heuristics miss domain-specific fields.
+                heuristics miss domain-specific fields. On Google AI Studio, keep
+                <strong>Gemini 3.1 Flash</strong> for fewer errors.
               </li>
               <li>Use <strong>Heuristics only</strong> for a fully offline pass.</li>
               <li>

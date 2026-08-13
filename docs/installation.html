@@ -47,7 +47,7 @@
         </header>
 
         <div class="feature-grid" style="margin-bottom: 2rem">
-          <a class="feature-card" href="#chrome-web-store" style="text-decoration: none; color: inherit">
+          <a class="feature-card" href="https://chromewebstore.google.com/detail/ai-form-filler/kacfbgoplpkcmhamjcdfddjnhgacemfh" target="_blank" rel="noopener noreferrer" style="text-decoration: none; color: inherit">
             <h3>Chrome Web Store</h3>
             <p>One-click install for everyday use. Recommended for most people.</p>
           </a>
@@ -60,19 +60,25 @@
         <section id="chrome-web-store">
           <h2>1. Install from the Chrome Web Store</h2>
           <p>Best if you just want to use the extension and get updates automatically.</p>
+          <p>
+            <a
+              class="btn btn-primary"
+              href="https://chromewebstore.google.com/detail/ai-form-filler/kacfbgoplpkcmhamjcdfddjnhgacemfh"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Add to Chrome</a
+            >
+          </p>
           <ol>
             <li>
               Open the
               <a
-                href="https://chromewebstore.google.com/detail/ai-form-filler"
-                rel="noopener"
+                href="https://chromewebstore.google.com/detail/ai-form-filler/kacfbgoplpkcmhamjcdfddjnhgacemfh"
+                target="_blank"
+                rel="noopener noreferrer"
                 >AI Form Filler listing</a
               >
               on the Chrome Web Store.
-              <span class="note" style="display: block; margin-top: 0.75rem">
-                If the listing is not live yet, use
-                <a href="#from-github">Build from GitHub</a> below.
-              </span>
             </li>
             <li>Click <strong>Add to Chrome</strong>, then confirm <strong>Add extension</strong>.</li>
             <li>
@@ -82,16 +88,24 @@
             <li>Click the toolbar icon to open the side panel.</li>
           </ol>
           <p>
-            Next: follow the <a href="./tutorial.html">tutorial</a> to connect a provider and fill a
-            form.
+            Next: follow the <a href="./tutorial.html">tutorial</a> to get a
+            <a href="./tutorial.html#free-keys">free API key</a> (Google AI Studio or Groq), connect
+            a provider, and fill a form.
           </p>
         </section>
 
         <section id="from-github">
           <h2>2. Download from GitHub, build, and load</h2>
           <p>
-            Use this path if you are developing, testing unreleased changes, or the Web Store listing
-            is not available.
+            Use this path if you are developing or testing unreleased changes. For everyday use,
+            install from the
+            <a
+              href="https://chromewebstore.google.com/detail/ai-form-filler/kacfbgoplpkcmhamjcdfddjnhgacemfh"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Chrome Web Store</a
+            >
+            instead.
           </p>
 
           <h3>Requirements</h3>
@@ -135,8 +149,9 @@ npm run build</code></pre>
             build.
           </div>
           <p>
-            Next: follow the <a href="./tutorial.html">tutorial</a> to configure fill mode, connect a
-            provider, and run your first fill.
+            Next: follow the <a href="./tutorial.html">tutorial</a> to get a
+            <a href="./tutorial.html#free-keys">free API key</a>, configure fill mode, and run your
+            first fill.
           </p>
         </section>
       </article>

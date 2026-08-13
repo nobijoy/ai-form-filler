@@ -6,6 +6,7 @@ Chrome extension (Manifest V3) that fills web forms with realistic synthetic dat
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-6.x-646CFF.svg)](https://vitejs.dev/)
 
+**Chrome Web Store:** [Add to Chrome](https://chromewebstore.google.com/detail/ai-form-filler/kacfbgoplpkcmhamjcdfddjnhgacemfh)  
 **Docs & tutorials:** [https://nobijoy.github.io/ai-form-filler/](https://nobijoy.github.io/ai-form-filler/)  
 **Privacy Policy:** [https://nobijoy.github.io/ai-form-filler/privacy.html](https://nobijoy.github.io/ai-form-filler/privacy.html)
 
@@ -32,7 +33,7 @@ Manual form testing is slow and brittle: labels change, wizards add steps, and f
 
 The run is stateful. A step epoch scopes what has been filled, and a semantic run context carries facts and identity values forward, so a step-4 "confirm your email" matches the address entered in step 1.
 
-You bring your own API key. Keys stay in the extension service worker and are never exposed to the page being filled.
+You bring your own API key. **You do not need a paid OpenAI or Anthropic account.** [Google AI Studio](https://aistudio.google.com/apikey) and [Groq Cloud](https://console.groq.com/keys) both issue a free API key with enough quota for typical extension use (no credit card). Keys stay in the extension service worker and are never exposed to the page being filled. Step-by-step: [get a free key](https://nobijoy.github.io/ai-form-filler/tutorial.html#free-keys).
 
 ## Capabilities
 
@@ -51,8 +52,8 @@ You bring your own API key. Keys stay in the extension service worker and are ne
 | Providers | OpenAI, Anthropic, Google AI Studio, xAI, Groq, OpenRouter, Cerebras |
 | Live progress | Streamed to the side panel while the run is in flight |
 
-- [Installation](https://nobijoy.github.io/ai-form-filler/installation.html) — Chrome Web Store or build from GitHub  
-- [Tutorial](https://nobijoy.github.io/ai-form-filler/tutorial.html) — configure and fill forms
+- [Installation](https://nobijoy.github.io/ai-form-filler/installation.html) — [Chrome Web Store](https://chromewebstore.google.com/detail/ai-form-filler/kacfbgoplpkcmhamjcdfddjnhgacemfh) or build from GitHub  
+- [Tutorial](https://nobijoy.github.io/ai-form-filler/tutorial.html) — configure and fill forms (includes [free API keys](https://nobijoy.github.io/ai-form-filler/tutorial.html#free-keys))
 
 ## Side panel reference
 
@@ -243,15 +244,19 @@ Settings live in `chrome.storage.local` under `aff_settings` and are sanitized o
 
 ## LLM providers
 
-| Provider | Kind | Default model |
-| --- | --- | --- |
-| OpenAI | OpenAI-compatible | `gpt-4o-mini` |
-| Anthropic | Anthropic messages | `claude-3-5-haiku-latest` |
-| Google AI Studio | OpenAI-compatible | `gemini-2.0-flash` |
-| xAI | OpenAI-compatible | `grok-3-mini` |
-| Groq Cloud | OpenAI-compatible | `llama-3.3-70b-versatile` |
-| OpenRouter | OpenAI-compatible | `openrouter/auto` |
-| Cerebras | OpenAI-compatible | `llama-3.3-70b` |
+**Free keys (recommended to start):** [Google AI Studio](https://aistudio.google.com/apikey) and [Groq Cloud](https://console.groq.com/keys) both give you an API key at no charge. Their free tiers are enough for filling forms while you test. Walkthrough: [Tutorial → Get a free API key](https://nobijoy.github.io/ai-form-filler/tutorial.html#free-keys).
+
+**Recommended models for testing:** Google AI Studio → **Gemini 3.1 Flash** (`gemini-3.1-flash`) for fewer fill errors and better efficiency. Groq Cloud → **Llama 3.3 70B Versatile** (`llama-3.3-70b-versatile`).
+
+| Provider | Kind | Default model | Notes |
+| --- | --- | --- | --- |
+| Google AI Studio | OpenAI-compatible | `gemini-3.1-flash` | Free tier; use Gemini 3.1 Flash for testing |
+| Groq Cloud | OpenAI-compatible | `llama-3.3-70b-versatile` | Free tier, no credit card |
+| OpenAI | OpenAI-compatible | `gpt-4o-mini` | Paid |
+| Anthropic | Anthropic messages | `claude-3-5-haiku-latest` | Paid |
+| xAI | OpenAI-compatible | `grok-3-mini` | Paid |
+| OpenRouter | OpenAI-compatible | `openrouter/auto` | Mix of paid and some free models |
+| Cerebras | OpenAI-compatible | `llama-3.3-70b` | Has a limited free tier |
 
 Anthropic differs enough to need its own adapter: `POST /v1/messages`, an `x-api-key` header, `anthropic-version`, a top-level `system` string, a mandatory `max_tokens`, and content returned as a block array. The `kind` discriminator on each provider selects the request builder and response reader.
 
