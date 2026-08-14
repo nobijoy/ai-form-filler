@@ -1,11 +1,11 @@
 {
   "extName": {
-    "message": "AI Form Filler",
+    "message": "Autofill AI Ninja — Context Aware AI Form Filler",
     "description": "Extension name"
   },
   "extDescription": {
-    "message": "Füllt reaktive und mehrstufige Webformulare mit realistischen KI-Testdaten (eigener API-Schlüssel).",
-    "description": "Extension description"
+    "message": "KI-Formfiller für Chrome: Formulare automatisch mit Testdaten füllen (React, Vue, Mehrschritt). Kostenloser Gemini-Key.",
+    "description": "Extension description (Chrome Web Store short text, max 132 chars)"
   },
   "actionTitle": {
     "message": "AI Form Filler",

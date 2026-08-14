@@ -1,6 +1,8 @@
 # AI Form Filler
 
-Chrome extension (Manifest V3) that fills web forms with realistic synthetic data for frontend and QA workflows. It is built for the two cases naive fillers get wrong: **framework-controlled inputs** that silently revert direct writes, and **multi-step wizards** whose fields depend on earlier answers.
+**AI Form Filler** is a Chrome extension that autofills web forms with realistic AI-generated test data. Use it to fill forms automatically on signup, checkout, and onboarding pages — including **React**, **Vue**, **Angular**, and **multi-step form** wizards that normal autofill tools get wrong.
+
+You do not need a paid OpenAI account. [Google AI Studio](https://aistudio.google.com/apikey) and [Groq Cloud](https://console.groq.com/keys) issue a free key. For testing, use **Gemini 3.1 Flash**.
 
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-green.svg)](https://developer.chrome.com/docs/extensions/mv3/intro/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
