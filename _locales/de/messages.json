@@ -8,7 +8,7 @@
     "description": "Extension description (Chrome Web Store short text, max 132 chars)"
   },
   "actionTitle": {
-    "message": "AI Form Filler",
+    "message": "Autofill AI Ninja",
     "description": "Toolbar button tooltip"
   },
   "commandFill": {
@@ -16,7 +16,7 @@
     "description": "Keyboard command"
   },
   "panelTitle": {
-    "message": "AI Form Filler",
+    "message": "Autofill AI Ninja",
     "description": "Side panel heading"
   },
 

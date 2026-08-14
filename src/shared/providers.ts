@@ -192,7 +192,7 @@ export interface PreparedRequest {
 }
 
 const OPENROUTER_APP_URL = "https://github.com/";
-const OPENROUTER_APP_TITLE = "AI Form Filler";
+const OPENROUTER_APP_TITLE = "Autofill AI Ninja";
 
 export function prepareRequest(
   provider: ProviderDefinition,

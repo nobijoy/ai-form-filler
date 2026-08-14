@@ -13,7 +13,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 const FALLBACKS: Record<string, string> = {
-  panelTitle: "AI Form Filler",
+  panelTitle: "Autofill AI Ninja",
   labelCustomRequest: "Custom request (optional)",
   hintCustomRequest:
     "Leave empty for normal filling. Use it only when you need something specific, e.g. \"phone as 090-XXXX-XXXX\" or \"user names in Japanese\".",

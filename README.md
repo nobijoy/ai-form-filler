@@ -1,6 +1,6 @@
-# AI Form Filler
+# Autofill AI Ninja
 
-**AI Form Filler** is a Chrome extension that autofills web forms with realistic AI-generated test data. Use it to fill forms automatically on signup, checkout, and onboarding pages — including **React**, **Vue**, **Angular**, and **multi-step form** wizards that normal autofill tools get wrong.
+**Autofill AI Ninja** (context-aware AI form filler) is a Chrome extension that autofills web forms with realistic AI-generated test data. Use it to fill forms automatically on signup, checkout, and onboarding pages — including **React**, **Vue**, **Angular**, and **multi-step form** wizards that normal autofill tools get wrong.
 
 You do not need a paid OpenAI account. [Google AI Studio](https://aistudio.google.com/apikey) and [Groq Cloud](https://console.groq.com/keys) issue a free key. For testing, use **Gemini 3.1 Flash**.
 
@@ -31,7 +31,7 @@ You do not need a paid OpenAI account. [Google AI Studio](https://aistudio.googl
 
 ## Overview
 
-Manual form testing is slow and brittle: labels change, wizards add steps, and framework-controlled inputs ignore naive value assignment. AI Form Filler runs inside the page, discovers fillable controls through widget adapters, resolves what it can locally, and delegates the rest to a configured LLM through the background service worker. Every write goes through the DOM's native property setters and a realistic event sequence, which is what React, Vue, Svelte, and Angular actually listen for.
+Manual form testing is slow and brittle: labels change, wizards add steps, and framework-controlled inputs ignore naive value assignment. Autofill AI Ninja runs inside the page, discovers fillable controls through widget adapters, resolves what it can locally, and delegates the rest to a configured LLM through the background service worker. Every write goes through the DOM's native property setters and a realistic event sequence, which is what React, Vue, Svelte, and Angular actually listen for.
 
 The run is stateful. A step epoch scopes what has been filled, and a semantic run context carries facts and identity values forward, so a step-4 "confirm your email" matches the address entered in step 1.
 
