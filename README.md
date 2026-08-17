@@ -241,7 +241,6 @@ Settings live in `chrome.storage.local` under `aff_settings` and are sanitized o
 | `fillEmptyOnly` | `true` | Skip fields that already hold a value |
 | `excludeSensitiveFields` | `false` | Skip password and payment (`cc-*`) fields |
 | `rememberKeyAcrossRestarts` | `true` | Persist keys, or drop them on browser start |
-| `fallbackProviders` | `[]` | Opt-in providers to try if the selected one fails |
 | `encryptKeys` | `false` | Encrypt stored keys at rest behind a passphrase |
 
 ## LLM providers
@@ -262,7 +261,7 @@ Settings live in `chrome.storage.local` under `aff_settings` and are sanitized o
 
 Anthropic differs enough to need its own adapter: `POST /v1/messages`, an `x-api-key` header, `anthropic-version`, a top-level `system` string, a mandatory `max_tokens`, and content returned as a block array. The `kind` discriminator on each provider selects the request builder and response reader.
 
-**Only the selected provider is contacted.** Fallbacks are opt-in and listed explicitly, because a fallback means shipping the scraped form contents to another vendor. Provider base URLs are pinned in code to each vendor's catalog origin before any authenticated fetch; a mistyped or attacker-supplied base URL cannot receive a key even though the manifest also lists `http://*/*` and `https://*/*` for page injection.
+**Only the selected provider is contacted.** Form contents are not sent to another vendor. Provider base URLs are pinned in code to each vendor's catalog origin before any authenticated fetch; a mistyped or attacker-supplied base URL cannot receive a key even though the manifest also lists `http://*/*` and `https://*/*` for page injection.
 
 Within a provider, a failed request walks the configured model, then the provider's default, then its fallback list, and steps down through decreasing output-token budgets when a request is rejected as too large. Authentication failures and the per-chunk request budget stop the walk immediately, since neither improves with another model.
 

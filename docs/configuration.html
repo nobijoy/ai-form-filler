@@ -162,11 +162,6 @@
                 <td>Persist keys, or drop them on browser start</td>
               </tr>
               <tr>
-                <td><code>fallbackProviders</code></td>
-                <td><code>[]</code></td>
-                <td>Opt-in providers to try if the selected one fails</td>
-              </tr>
-              <tr>
                 <td><code>encryptKeys</code></td>
                 <td><code>false</code></td>
                 <td>Encrypt stored keys at rest behind a passphrase</td>
@@ -238,8 +233,7 @@
         <p>
           Anthropic uses its own adapter (<code>POST /v1/messages</code>,
           <code>x-api-key</code>, top-level <code>system</code>, block-array content). Only the
-          selected provider is contacted unless you opt into fallbacks — a fallback means shipping
-          form contents to another vendor.
+          selected provider is contacted. Form contents are not sent to another vendor.
         </p>
         <p>
           Within a provider, a failed request walks the configured model, then the default, then the
