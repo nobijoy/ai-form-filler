@@ -1,0 +1,203 @@
+{
+  "extName": {
+    "message": "Autofill AI Ninja — AI Form Filler for Developers",
+    "description": "Extension name"
+  },
+  "extDescription": {
+    "message": "Relleno de formularios con IA para desarrolladores y QA. React, Vue, Angular y varios pasos, con datos realistas.",
+    "description": "Extension description (Chrome Web Store short text, max 132 chars)"
+  },
+  "actionTitle": {
+    "message": "Autofill AI Ninja",
+    "description": "Toolbar button tooltip"
+  },
+  "commandFill": {
+    "message": "Rellenar el formulario de esta página",
+    "description": "Keyboard command"
+  },
+  "panelTitle": {
+    "message": "Autofill AI Ninja",
+    "description": "Side panel heading"
+  },
+
+  "labelCustomRequest": {
+    "message": "Instrucción personalizada (opcional)",
+    "description": "Free-text instruction field"
+  },
+  "hintCustomRequest": {
+    "message": "Déjelo vacío para el relleno normal. Úselo solo cuando necesite algo concreto, por ejemplo «teléfono como 090-XXXX-XXXX» o «nombres en japonés».",
+    "description": "Help text under the custom request box"
+  },
+  "placeholderCustomRequest": {
+    "message": "p. ej. nombres en japonés, teléfono como 090-XXXX-XXXX",
+    "description": "Placeholder for the custom request box"
+  },
+  "btnFill": {
+    "message": "Rellenar esta página",
+    "description": "Primary run button"
+  },
+
+  "labelProgress": {
+    "message": "Progreso",
+    "description": "Progress log section title"
+  },
+  "btnClearLog": {
+    "message": "Borrar",
+    "description": "Clears the progress log"
+  },
+  "logEmpty": {
+    "message": "Aún no hay actividad.",
+    "description": "Empty progress log placeholder"
+  },
+
+  "labelConnection": {
+    "message": "Conexión",
+    "description": "Provider settings section"
+  },
+  "labelProvider": {
+    "message": "Proveedor",
+    "description": "LLM provider selector"
+  },
+  "labelApiKey": {
+    "message": "Clave de API",
+    "description": "API key field"
+  },
+  "btnTestKey": {
+    "message": "Probar",
+    "description": "Validates the entered or saved key"
+  },
+  "btnSaveKey": {
+    "message": "Guardar clave",
+    "description": "Stores the entered API key"
+  },
+  "btnReplaceKey": {
+    "message": "Reemplazar clave",
+    "description": "Replaces the stored API key"
+  },
+  "btnShowKey": {
+    "message": "Mostrar",
+    "description": "Reveals the entered API key"
+  },
+  "btnHideKey": {
+    "message": "Ocultar",
+    "description": "Hides the entered API key"
+  },
+  "labelRememberKey": {
+    "message": "Recordar la clave al reiniciar el navegador",
+    "description": "Key persistence toggle"
+  },
+  "labelEncryptKeys": {
+    "message": "Cifrar las claves guardadas con una frase de contraseña",
+    "description": "Enables encryption at rest"
+  },
+  "btnUnlock": {
+    "message": "Desbloquear",
+    "description": "Unlocks the encrypted key vault"
+  },
+  "btnLock": {
+    "message": "Bloquear",
+    "description": "Locks the encrypted key vault"
+  },
+  "labelModel": {
+    "message": "Modelo",
+    "description": "Model selector"
+  },
+
+  "labelBehavior": {
+    "message": "Comportamiento",
+    "description": "Orchestration settings section"
+  },
+  "labelFillMode": {
+    "message": "Modo de relleno",
+    "description": "Hybrid, AI only, or heuristics only"
+  },
+  "modeHybrid": {
+    "message": "Híbrido (heurística + IA)",
+    "description": "Fill mode option"
+  },
+  "modeAiOnly": {
+    "message": "Solo IA",
+    "description": "Fill mode option"
+  },
+  "modeHeuristicsOnly": {
+    "message": "Solo heurística (sin clave de API)",
+    "description": "Fill mode option"
+  },
+  "labelLanguage": {
+    "message": "Idioma de los valores",
+    "description": "Output language policy"
+  },
+  "langAuto": {
+    "message": "Seguir la página",
+    "description": "Language policy option"
+  },
+  "langOverride": {
+    "message": "Usar siempre…",
+    "description": "Language policy option"
+  },
+  "hintLanguage": {
+    "message": "Un campo con su propio atributo lang siempre tiene prioridad sobre esta opción.",
+    "description": "Language help text"
+  },
+  "labelAutoNextEnabled": {
+    "message": "Avanzar automáticamente por formularios de varios pasos",
+    "description": "Auto-next toggle"
+  },
+  "labelAutoNextMaxSteps": {
+    "message": "Máximo de pasos",
+    "description": "Safety cap on wizard traversal"
+  },
+  "labelMaxRounds": {
+    "message": "Máximo de rondas por paso",
+    "description": "Retry loop cap within a step"
+  },
+  "labelSettleMs": {
+    "message": "Espera tras escribir (ms)",
+    "description": "Extra wait after writing values"
+  },
+  "labelFillEmptyOnly": {
+    "message": "Rellenar solo los campos vacíos",
+    "description": "Skip fields that already have a value"
+  },
+  "warnFillEmptyOnly": {
+    "message": "Aviso: los valores existentes (hasta 60 caracteres) pueden enviarse al LLM, incluidos datos personales autocompletados.",
+    "description": "Shown when fill-empty-only is off"
+  },
+  "labelExcludeSensitive": {
+    "message": "Omitir campos de contraseña y de pago",
+    "description": "Excludes sensitive fields from fill and LLM payloads"
+  },
+  "hintExcludeSensitive": {
+    "message": "Si está activado, los campos de contraseña y de tarjeta no se rellenan ni se envían a la IA.",
+    "description": "Help under sensitive-field toggle"
+  },
+  "passphraseConfirmPlaceholder": {
+    "message": "Confirmar la frase de contraseña",
+    "description": "Placeholder for passphrase confirmation"
+  },
+
+  "btnSave": {
+    "message": "Guardar ajustes",
+    "description": "Persists extension settings"
+  },
+  "btnClearKey": {
+    "message": "Quitar clave",
+    "description": "Removes the stored key for the selected provider"
+  },
+  "statusIdle": {
+    "message": "Listo.",
+    "description": "Idle status"
+  },
+  "statusNoTab": {
+    "message": "No hay ninguna pestaña activa.",
+    "description": "Error status"
+  },
+  "keyHint": {
+    "message": "Las claves las guarda la extensión y solo las lee su proceso en segundo plano. Nunca se exponen a las páginas web. Quien tenga acceso a este perfil del navegador puede usar una clave guardada.",
+    "description": "Security note"
+  },
+  "errGeneric": {
+    "message": "Algo salió mal.",
+    "description": "Generic error"
+  }
+}

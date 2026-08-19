@@ -1,0 +1,203 @@
+{
+  "extName": {
+    "message": "Autofill AI Ninja — AI Form Filler for Developers",
+    "description": "Extension name"
+  },
+  "extDescription": {
+    "message": "ডেভেলপার ও QA-এর জন্য AI ফর্ম পূরণ। React, Vue, Angular ও বহুধাপের ফর্মে বাস্তবসম্মত টেস্ট ডেটা পূরণ করে।",
+    "description": "Extension description (Chrome Web Store short text, max 132 chars)"
+  },
+  "actionTitle": {
+    "message": "Autofill AI Ninja",
+    "description": "Toolbar button tooltip"
+  },
+  "commandFill": {
+    "message": "এই পাতার ফর্ম পূরণ করুন",
+    "description": "Keyboard command"
+  },
+  "panelTitle": {
+    "message": "Autofill AI Ninja",
+    "description": "Side panel heading"
+  },
+
+  "labelCustomRequest": {
+    "message": "কাস্টম নির্দেশ (ঐচ্ছিক)",
+    "description": "Free-text instruction field"
+  },
+  "hintCustomRequest": {
+    "message": "সাধারণ পূরণের জন্য খালি রাখুন। শুধু নির্দিষ্ট কিছু চাইলে ব্যবহার করুন, যেমন «ফোন 090-XXXX-XXXX ফরম্যাটে» বা «নাম জাপানি ভাষায়»।",
+    "description": "Help text under the custom request box"
+  },
+  "placeholderCustomRequest": {
+    "message": "যেমন: নাম জাপানি ভাষায়, ফোন 090-XXXX-XXXX",
+    "description": "Placeholder for the custom request box"
+  },
+  "btnFill": {
+    "message": "এই পাতা পূরণ করুন",
+    "description": "Primary run button"
+  },
+
+  "labelProgress": {
+    "message": "অগ্রগতি",
+    "description": "Progress log section title"
+  },
+  "btnClearLog": {
+    "message": "মুছুন",
+    "description": "Clears the progress log"
+  },
+  "logEmpty": {
+    "message": "এখনো কোনো কার্যক্রম নেই।",
+    "description": "Empty progress log placeholder"
+  },
+
+  "labelConnection": {
+    "message": "সংযোগ",
+    "description": "Provider settings section"
+  },
+  "labelProvider": {
+    "message": "প্রোভাইডার",
+    "description": "LLM provider selector"
+  },
+  "labelApiKey": {
+    "message": "API কী",
+    "description": "API key field"
+  },
+  "btnTestKey": {
+    "message": "পরীক্ষা",
+    "description": "Validates the entered or saved key"
+  },
+  "btnSaveKey": {
+    "message": "কী সংরক্ষণ",
+    "description": "Stores the entered API key"
+  },
+  "btnReplaceKey": {
+    "message": "কী বদলান",
+    "description": "Replaces the stored API key"
+  },
+  "btnShowKey": {
+    "message": "দেখান",
+    "description": "Reveals the entered API key"
+  },
+  "btnHideKey": {
+    "message": "লুকান",
+    "description": "Hides the entered API key"
+  },
+  "labelRememberKey": {
+    "message": "ব্রাউজার পুনরায় চালু হলেও কী মনে রাখুন",
+    "description": "Key persistence toggle"
+  },
+  "labelEncryptKeys": {
+    "message": "সংরক্ষিত কী একটি পাসফ্রেজ দিয়ে এনক্রিপ্ট করুন",
+    "description": "Enables encryption at rest"
+  },
+  "btnUnlock": {
+    "message": "আনলক",
+    "description": "Unlocks the encrypted key vault"
+  },
+  "btnLock": {
+    "message": "লক",
+    "description": "Locks the encrypted key vault"
+  },
+  "labelModel": {
+    "message": "মডেল",
+    "description": "Model selector"
+  },
+
+  "labelBehavior": {
+    "message": "আচরণ",
+    "description": "Orchestration settings section"
+  },
+  "labelFillMode": {
+    "message": "পূরণ মোড",
+    "description": "Hybrid, AI only, or heuristics only"
+  },
+  "modeHybrid": {
+    "message": "হাইব্রিড (হিউরিস্টিক + AI)",
+    "description": "Fill mode option"
+  },
+  "modeAiOnly": {
+    "message": "শুধু AI",
+    "description": "Fill mode option"
+  },
+  "modeHeuristicsOnly": {
+    "message": "শুধু হিউরিস্টিক (API কী লাগবে না)",
+    "description": "Fill mode option"
+  },
+  "labelLanguage": {
+    "message": "মানের ভাষা",
+    "description": "Output language policy"
+  },
+  "langAuto": {
+    "message": "পাতা অনুসরণ করুন",
+    "description": "Language policy option"
+  },
+  "langOverride": {
+    "message": "সবসময় এই ভাষা…",
+    "description": "Language policy option"
+  },
+  "hintLanguage": {
+    "message": "নিজস্ব lang অ্যাট্রিবিউট থাকা ফিল্ড সবসময় এই সেটিংয়ের চেয়ে অগ্রাধিকার পায়।",
+    "description": "Language help text"
+  },
+  "labelAutoNextEnabled": {
+    "message": "বহুধাপের ফর্ম স্বয়ংক্রিয়ভাবে এগিয়ে নিন",
+    "description": "Auto-next toggle"
+  },
+  "labelAutoNextMaxSteps": {
+    "message": "সর্বোচ্চ ধাপ",
+    "description": "Safety cap on wizard traversal"
+  },
+  "labelMaxRounds": {
+    "message": "প্রতি ধাপে সর্বোচ্চ রাউন্ড",
+    "description": "Retry loop cap within a step"
+  },
+  "labelSettleMs": {
+    "message": "লেখা শেষে অপেক্ষা (ms)",
+    "description": "Extra wait after writing values"
+  },
+  "labelFillEmptyOnly": {
+    "message": "শুধু খালি ফিল্ড পূরণ করুন",
+    "description": "Skip fields that already have a value"
+  },
+  "warnFillEmptyOnly": {
+    "message": "সতর্কতা: বিদ্যমান ফিল্ড মান (সর্বোচ্চ ৬০ অক্ষর) LLM-এ পাঠানো হতে পারে, অটোফিল করা ব্যক্তিগত তথ্যসহ।",
+    "description": "Shown when fill-empty-only is off"
+  },
+  "labelExcludeSensitive": {
+    "message": "পাসওয়ার্ড ও পেমেন্ট ফিল্ড এড়িয়ে যান",
+    "description": "Excludes sensitive fields from fill and LLM payloads"
+  },
+  "hintExcludeSensitive": {
+    "message": "চালু থাকলে পাসওয়ার্ড ও কার্ড ফিল্ড পূরণ হয় না এবং AI-তেও পাঠানো হয় না।",
+    "description": "Help under sensitive-field toggle"
+  },
+  "passphraseConfirmPlaceholder": {
+    "message": "পাসফ্রেজ নিশ্চিত করুন",
+    "description": "Placeholder for passphrase confirmation"
+  },
+
+  "btnSave": {
+    "message": "সেটিংস সংরক্ষণ",
+    "description": "Persists extension settings"
+  },
+  "btnClearKey": {
+    "message": "কী সরান",
+    "description": "Removes the stored key for the selected provider"
+  },
+  "statusIdle": {
+    "message": "প্রস্তুত।",
+    "description": "Idle status"
+  },
+  "statusNoTab": {
+    "message": "কোনো সক্রিয় ট্যাব নেই।",
+    "description": "Error status"
+  },
+  "keyHint": {
+    "message": "কী এক্সটেনশন সংরক্ষণ করে এবং শুধু ব্যাকগ্রাউন্ড ওয়ার্কার সেগুলো পড়ে। ওয়েব পাতায় সেগুলো যায় না। এই ব্রাউজার প্রোফাইলে যাদের অ্যাক্সেস আছে তারা সংরক্ষিত কী ব্যবহার করতে পারে।",
+    "description": "Security note"
+  },
+  "errGeneric": {
+    "message": "কিছু একটা ভুল হয়েছে।",
+    "description": "Generic error"
+  }
+}

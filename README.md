@@ -67,7 +67,7 @@ You bring your own API key. **You do not need a paid OpenAI or Anthropic account
 | **Behavior** | Fill mode, language, auto-next, step/round/settle limits, empty-only, sensitive skip |
 | **Save settings** | Persists behavior and connection choices (keys are saved separately via **Save key**) |
 
-UI strings ship in English and German (`_locales/en`, `_locales/de`).
+UI strings ship in English, German, Japanese, Spanish, Portuguese, and Bengali (`_locales/en`, `de`, `ja`, `es`, `pt`, `bn`).
 
 ## Architecture
 
@@ -283,7 +283,7 @@ Within a provider, a failed request walks the configured model, then the provide
 ai-form-filler/
 ├── manifest.config.ts        # MV3 manifest; provider origins + http(s) wildcards for injection
 ├── docs/                     # GitHub Pages documentation site
-├── _locales/{en,de}/         # UI strings
+├── _locales/{en,de,ja,es,pt,bn}/  # UI strings
 └── src/
     ├── background/
     │   ├── index.ts          # Message router, lifecycle, context menu
