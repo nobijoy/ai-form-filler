@@ -42,6 +42,56 @@ export function associatedLabelText(el: Element): string {
   return "";
 }
 
+const CAPTION_TAG = /^(LABEL|SPAN|P|DT|DIV|H[1-6]|LEGEND|TH|TD)$/i;
+
+function shortCaption(node: Element | null): string {
+  if (!node) return "";
+  if (node.querySelector("input, textarea, select")) return "";
+  const text = cleanText(node.textContent);
+  return text && text.length > 0 && text.length <= 60 ? text : "";
+}
+
+/**
+ * Visible caption sitting next to a control that is not wired with <label for>.
+ * Svelte date pickers nest the <input> inside extra wrappers, so the caption
+ * (適用開始日 / 適用終了日) usually lives on an ancestor row, not a sibling.
+ */
+export function nearbyLabelText(el: HTMLElement): string {
+  const row = el.closest("tr");
+  if (row) {
+    const header = row.querySelector("th, [role='rowheader']");
+    const headerText = cleanText(header?.textContent);
+    if (headerText && headerText.length <= 60) return headerText;
+  }
+
+  let cursor: HTMLElement | null = el;
+  for (let depth = 0; depth < 5 && cursor; depth += 1) {
+    let sibling = cursor.previousElementSibling;
+    for (let hop = 0; hop < 3 && sibling; hop += 1) {
+      if (sibling.matches("input, textarea, select, button")) {
+        sibling = sibling.previousElementSibling;
+        continue;
+      }
+      const text = shortCaption(sibling) || (CAPTION_TAG.test(sibling.tagName) ? cleanText(sibling.textContent) : "");
+      if (text && text.length > 0 && text.length <= 60 && !sibling.querySelector("input, textarea, select")) {
+        return text;
+      }
+      sibling = sibling.previousElementSibling;
+    }
+
+    const host: HTMLElement | null = cursor.parentElement;
+    if (!host || host.tagName === "FORM" || host.tagName === "BODY" || host.tagName === "MAIN") break;
+    for (const child of Array.from(host.children) as HTMLElement[]) {
+      if (child === cursor || child.contains(cursor)) continue;
+      if (!CAPTION_TAG.test(child.tagName)) continue;
+      const text = shortCaption(child);
+      if (text) return text;
+    }
+    cursor = host;
+  }
+  return "";
+}
+
 /**
  * Writes through the prototype setter so React's value tracker sees a real
  * change rather than a no-op it can discard.

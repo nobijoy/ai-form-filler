@@ -1,4 +1,5 @@
 import type { FieldDescriptor } from "../shared/types";
+import { coerceIsoDate, looksLikeDateField } from "../shared/dateField";
 import { resolveBooleanValue, resolveOptionValue, normalizeForMatch } from "../shared/optionMatch";
 import { coerceToPattern } from "../shared/patternCoerce";
 
@@ -70,23 +71,6 @@ function clampNumeric(value: string, field: FieldDescriptor): string {
   return String(result);
 }
 
-/** Coerces common model date formats to the `YYYY-MM-DD` a date input requires. */
-function coerceDate(value: string): string | null {
-  const trimmed = value.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
-
-  const slash = trimmed.match(/^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$/);
-  if (slash) {
-    return `${slash[1]}-${slash[2].padStart(2, "0")}-${slash[3].padStart(2, "0")}`;
-  }
-
-  const parsed = Date.parse(trimmed);
-  if (Number.isFinite(parsed)) {
-    return new Date(parsed).toISOString().slice(0, 10);
-  }
-  return null;
-}
-
 const TIME_FRAGMENT =
   /(?:^|[^\d])(\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(?:\s*([AaPp][Mm]))?(?=$|[^\d])/;
 
@@ -148,13 +132,13 @@ function coerceDateTimeLocal(value: string): string | null {
     /^(\d{4}-\d{2}-\d{2})[T\s](\d{1,2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?)/,
   );
   if (direct) {
-    const date = coerceDate(direct[1]);
+    const date = coerceIsoDate(direct[1]);
     const time = coerceTime(direct[2]);
     if (!date || !time) return null;
     return `${date}T${time.slice(0, 5)}`;
   }
 
-  const date = coerceDate(trimmed);
+  const date = coerceIsoDate(trimmed);
   if (date) return `${date}T12:00`;
 
   const time = coerceTime(trimmed);
@@ -282,13 +266,14 @@ export function validateAiResponse(
       value = clampNumeric(value, field);
     }
 
-    if (field.inputType === "date") {
-      const coerced = coerceDate(value);
+    if (field.inputType === "date" || (looksLikeDateField(field) && field.inputType !== "datetime-local")) {
+      const coerced = coerceIsoDate(value);
       if (coerced === null) {
         reject(sid, field, `"${value}" is not a usable date`);
         continue;
       }
-      value = coerced;
+      const wantsSlashes = /[/.年]/.test(`${field.placeholder || ""}${field.pattern || ""}`);
+      value = wantsSlashes ? coerced.replace(/-/g, "/") : coerced;
     }
 
     if (field.inputType === "time") {

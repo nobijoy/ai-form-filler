@@ -1,4 +1,5 @@
 import { isFillableField } from "../shared/fillable";
+import { dateTypeForPrompt } from "../shared/dateField";
 import { parseLlmValues, parseNavigationDecision } from "../shared/llmResponseSchema";
 import {
   PROVIDERS,
@@ -123,7 +124,7 @@ export async function getProviderModels(
 // ---------------------------------------------------------------------------
 
 function fieldLabel(field: FieldDescriptor): string {
-  return (field.labelText ?? field.ariaLabel ?? field.name ?? "").slice(0, 140);
+  return (field.labelText ?? field.ariaLabel ?? field.placeholder ?? field.name ?? "").slice(0, 140);
 }
 
 /**
@@ -171,7 +172,7 @@ interface CompactField {
 function compactField(field: FieldDescriptor): CompactField {
   const compact: CompactField = {
     sid: field.syntheticId,
-    type: field.kind ?? field.inputType ?? field.tag,
+    type: dateTypeForPrompt(field) || field.kind || field.inputType || field.tag,
     label: fieldLabel(field),
   };
 
@@ -273,8 +274,10 @@ function systemPrompt(settings: ExtensionSettings, snapshot: FillSnapshot): stri
     ``,
     `Rules:`,
     `- Respect required, type, maxLen, min and max.`,
+    `- For type "date" answer YYYY-MM-DD. If help/placeholder uses slashes or a mask such as yyyy/mm/dd, match that format instead.`,
     `- For type "time" answer with a single clock time as HH:mm (24-hour). Never return a range such as "14:00-16:00"; pick one concrete time inside the requested window.`,
     `- For type "datetime-local" answer as YYYY-MM-DDTHH:mm.`,
+    `- Always fill date fields. When two dates form a validity window, start = today or a recent date, end = a later date in the same run. A mask like yyyy/mm/dd is empty, not a value.`,
     `- "pattern" is a JavaScript regular expression the value must match in full. "help" is the field's own instruction text. When either states a format, follow it literally, including separators: for pattern "0\\d{2}-\\d{4}-\\d{4}" answer "090-1234-5678", not "+81 90 1234 5678".`,
     `- For telephone fields with "country", return a genuinely valid test number for that ISO country in international E.164 form (for example +12025550123 for US). Do not use fictional +1555 numbers; phone validation libraries reject many of them.`,
     `- For select, radio and combobox fields answer with one of the given options: either its value or its visible label, copied exactly.`,

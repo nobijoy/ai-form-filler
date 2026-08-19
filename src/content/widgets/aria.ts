@@ -10,6 +10,7 @@ import {
   simulateClick,
 } from "./dom";
 import { optionSignatureOf, type ApplyReport, type DescribeContext, type WidgetAdapter, type WidgetInstance } from "./types";
+import { datePickerAdapter } from "./date";
 
 /**
  * Adapters for controls built from ARIA roles rather than native elements.
@@ -307,6 +308,7 @@ export const ariaComboboxAdapter: WidgetAdapter = {
   selector: "[role='combobox'], [role='listbox']",
 
   match(el) {
+    if (datePickerAdapter.match(el)) return false;
     if (el.getAttribute("role") === "listbox") {
       // A standalone listbox is its own control; one owned by a combobox is not.
       return (

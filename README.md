@@ -274,7 +274,7 @@ Within a provider, a failed request walks the configured model, then the provide
 - With `encryptKeys` enabled, keys are wrapped with AES-GCM under a PBKDF2-derived key (250k iterations, SHA-256, random per-profile salt). Passphrases must be at least 8 characters and confirmed in the UI. The derived key is held in `chrome.storage.session`, so it survives service-worker restarts but not a browser restart. Off by default.
 - Manual fills start from an explicit user action (side panel, context menu, or command). Multi-step wizards may auto-resume after navigation from a short-lived session checkpoint, but only on the same tab that started the run.
 - Password and payment fields can be skipped via `excludeSensitiveFields` (off by default). Turning off "fill empty only" shows a warning that existing values may be sent to the LLM.
-- Content scripts run with `all_frames: false` on purpose: the extension stays out of third-party payment widgets and cross-origin iframes. Forms inside iframes are a known limitation.
+- Content scripts run with `all_frames: false` on purpose: the extension stays out of third-party payment widgets and cross-origin iframes.
 - Anyone with access to the browser profile can use a stored key. Encryption raises the bar for at-rest access; it is not a defence against a compromised profile in use.
 
 ## Project layout

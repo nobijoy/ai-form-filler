@@ -1,3 +1,4 @@
+import { isDateFormatMask } from "../shared/dateField";
 import { isFillableField } from "../shared/fillable";
 import type { ExtensionSettings, FieldDescriptor } from "../shared/types";
 
@@ -17,7 +18,11 @@ function isChoiceKind(field: FieldDescriptor): boolean {
 export function isFieldEmpty(field: FieldDescriptor): boolean {
   if (isBooleanKind(field)) return field.currentValue !== "true";
   if (isChoiceKind(field)) return !field.currentValue?.trim();
-  return !String(field.currentValue ?? "").trim();
+  const current = String(field.currentValue ?? "").trim();
+  if (!current) return true;
+  if (isDateFormatMask(current)) return true;
+  if (field.placeholder && current === field.placeholder.trim()) return true;
+  return false;
 }
 
 /**

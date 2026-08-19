@@ -44,7 +44,7 @@
       <article class="prose">
         <header class="page-head">
           <h1>Security and storage</h1>
-          <p>Where keys live, what the page can see, and known limitations.</p>
+          <p>Where keys live, and what the page can see.</p>
         </header>
 
         <h2 id="keys">API keys</h2>
@@ -98,25 +98,6 @@
           <li>
             Only the selected provider is contacted. Provider base URLs
             are pinned in code before any authenticated fetch.
-          </li>
-        </ul>
-
-        <h2 id="limitations">Limitations</h2>
-        <ul>
-          <li>Forms inside cross-origin iframes are not filled.</li>
-          <li>
-            Chrome restricted URLs (<code>chrome://</code>, the Web Store, and similar) cannot host
-            content scripts.
-          </li>
-          <li>
-            Final checkout / pay buttons are not clicked by default; review and submit yourself.
-          </li>
-          <li>
-            Heuristics-only mode will miss many domain-specific or poorly labeled fields.
-          </li>
-          <li>
-            Generated data is synthetic test data, not a substitute for real user consent or
-            production PII handling.
           </li>
         </ul>
 

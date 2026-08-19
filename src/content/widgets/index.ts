@@ -1,16 +1,17 @@
 import type { FieldKind } from "../../shared/types";
 import { ARIA_ADAPTERS } from "./aria";
+import { datePickerAdapter } from "./date";
 import { NATIVE_ADAPTERS } from "./native";
 import type { WidgetAdapter, WidgetInstance } from "./types";
 
 /**
  * Adapter registry.
  *
- * ARIA adapters come first so a `role="radiogroup"` wrapper claims its children
- * before the native radio adapter sees them, and a `role="combobox"` input is
- * driven as a combobox rather than as a plain text field.
+ * Date-picker adapters come first so a combobox that is actually a calendar
+ * is not driven as a listbox. ARIA adapters then claim remaining custom
+ * widgets before native inputs.
  */
-export const ADAPTERS: WidgetAdapter[] = [...ARIA_ADAPTERS, ...NATIVE_ADAPTERS];
+export const ADAPTERS: WidgetAdapter[] = [datePickerAdapter, ...ARIA_ADAPTERS, ...NATIVE_ADAPTERS];
 
 /** Union selector used for the single document query the scanner performs. */
 export const WIDGET_SELECTOR = ADAPTERS.map((adapter) => adapter.selector).join(", ");
@@ -35,6 +36,7 @@ const BY_KIND: Partial<Record<FieldKind, string>> = {
   "aria-radio": "aria-radiogroup",
   "aria-combobox": "aria-combobox",
   contenteditable: "contenteditable",
+  date: "date-picker",
 };
 
 export function adapterForInstance(instance: WidgetInstance): WidgetAdapter | null {

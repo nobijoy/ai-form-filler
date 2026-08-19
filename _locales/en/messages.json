@@ -1,10 +1,10 @@
 {
   "extName": {
-    "message": "Autofill AI Ninja — Context Aware AI Form Filler",
+    "message": "Autofill AI Ninja — AI Form Filler for Developers",
     "description": "Extension name"
   },
   "extDescription": {
-    "message": "AI form filler Chrome extension to autofill forms with test data. React, Vue, multi-step. Free Gemini or Groq key.",
+    "message": "AI form filler for developers and QA. Fill React, Vue, Angular and multi-step forms with realistic test data.",
     "description": "Extension description (Chrome Web Store short text, max 132 chars)"
   },
   "actionTitle": {

@@ -1,5 +1,6 @@
 import type { FieldDescriptor } from "./types";
 import { isFillableField, PAYMENT_AUTOCOMPLETE } from "./fillable";
+import { formatDateForControl, looksLikeDateField, looksLikeEndDateField } from "./dateField";
 
 /**
  * Network-free value generation for fields whose meaning is unambiguous from
@@ -339,6 +340,9 @@ export function classifyField(field: FieldDescriptor): "heuristic" | "ai" {
   if (field.inputType === "password") return "ai";
 
   // Anything with a choice set, or any boolean, needs to understand the form.
+  if (field.kind === "date" || field.inputType === "date" || looksLikeDateField(field)) {
+    return "heuristic";
+  }
   if (field.kind && field.kind !== "text" && field.kind !== "textarea") return "ai";
   if (field.tag === "select" || field.radioGroup) return "ai";
 
@@ -348,7 +352,7 @@ export function classifyField(field: FieldDescriptor): "heuristic" | "ai" {
     if (field.inputType === "email") return "heuristic";
     if (field.inputType === "url") return "heuristic";
     if (field.inputType === "tel") return "heuristic";
-    if (field.inputType === "date" && (token === "bday" || token === "bday-year")) return "heuristic";
+    if (field.inputType === "date" || looksLikeDateField(field)) return "heuristic";
     if (token && HEURISTIC_AUTOCOMPLETE.has(token)) return "heuristic";
   }
 
@@ -446,6 +450,17 @@ function generateHeuristicValue(
       return identity.birthYear || profile.birthYear;
     default:
       break;
+  }
+
+  if (looksLikeDateField(field)) {
+    const start = new Date();
+    start.setHours(12, 0, 0, 0);
+    const dayOffset = looksLikeEndDateField(field)
+      ? numberFrom(variationSeed, "end-date", 14, 90)
+      : numberFrom(variationSeed, "start-date", 0, 5);
+    start.setDate(start.getDate() + (looksLikeEndDateField(field) ? dayOffset : -dayOffset));
+    const iso = `${start.getFullYear()}-${pad2(start.getMonth() + 1)}-${pad2(start.getDate())}`;
+    return formatDateForControl(iso, field);
   }
 
   return null;

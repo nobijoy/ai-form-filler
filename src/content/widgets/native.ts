@@ -1,10 +1,12 @@
 import type { FieldOption } from "../../shared/types";
+import { controlLooksLikeDateStore, isDateFormatMask } from "../../shared/dateField";
 import { resolveBooleanValue, resolveOptionValue } from "../../shared/optionMatch";
 import {
   associatedLabelText,
   cleanText,
   delay,
   fireInputAndChange,
+  nearbyLabelText,
   nextFrame,
   resolveAriaLabel,
   setNativeChecked,
@@ -37,16 +39,43 @@ function inputTypeOf(el: HTMLInputElement): string {
   return (el.type || "text").toLowerCase();
 }
 
+function isHiddenDateStore(el: HTMLInputElement): boolean {
+  if (inputTypeOf(el) !== "hidden") return false;
+  if (
+    !controlLooksLikeDateStore({
+      type: el.type,
+      name: el.name,
+      id: el.id,
+      placeholder: el.placeholder,
+      value: el.value,
+      className: el.className,
+      pattern: el.pattern,
+    }) &&
+    !isDateFormatMask(el.placeholder)
+  ) {
+    return false;
+  }
+  // Flatpickr (and similar) keep a visible alt input next to the hidden store.
+  // Fill the visible one; writing both would duplicate the field in the prompt.
+  const root =
+    el.closest(".flatpickr-wrapper, .flatpickr-input-wrapper, [data-datepicker], [class*='datepicker' i], [class*='date-picker' i]") ??
+    el.parentElement;
+  if (!root) return true;
+  const visible = root.querySelector("input:not([type='hidden'])");
+  return !(visible instanceof HTMLInputElement && visible !== el);
+}
+
 function isDisabled(el: Element): boolean {
   if (el.hasAttribute("disabled")) return true;
   if (el.getAttribute("aria-disabled") === "true") return true;
-  if ((el as HTMLInputElement).readOnly) return true;
+  // readOnly is not disabled: Svelte/Flatpickr date pickers lock typing so the
+  // user opens a calendar, but programmatic writes still have to go through.
   if (el.closest("[inert]")) return true;
   return el.closest("fieldset[disabled]") !== null;
 }
 
 function labelOf(el: HTMLElement): string | undefined {
-  return associatedLabelText(el) || resolveAriaLabel(el) || undefined;
+  return associatedLabelText(el) || resolveAriaLabel(el) || nearbyLabelText(el) || undefined;
 }
 
 const COUNTRY_NAME_TO_CODE: Record<string, string> = {
@@ -173,6 +202,7 @@ async function applyTextLike(
     return applyCompositePhone(el, value);
   }
 
+  const hiddenStore = el instanceof HTMLInputElement && inputTypeOf(el) === "hidden";
   const keepFocusForSearch =
     el instanceof HTMLInputElement &&
     (inputTypeOf(el) === "search" ||
@@ -186,8 +216,10 @@ async function applyTextLike(
         ].join(" "),
       ));
 
-  el.focus({ preventScroll: true });
-  el.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+  if (!hiddenStore) {
+    el.focus({ preventScroll: true });
+    el.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+  }
 
   setNativeValue(el, value);
   fireInputAndChange(el);
@@ -228,13 +260,19 @@ export const nativeTextAdapter: WidgetAdapter = {
     if (el instanceof HTMLTextAreaElement) return true;
     if (!(el instanceof HTMLInputElement)) return false;
     const type = inputTypeOf(el);
-    return !NON_FILLABLE_INPUT_TYPES.has(type) && type !== "checkbox" && type !== "radio";
+    if (type === "checkbox" || type === "radio") return false;
+    if (type === "hidden") return isHiddenDateStore(el);
+    return !NON_FILLABLE_INPUT_TYPES.has(type);
   },
 
   describe(el, ctx) {
     const control = el as HTMLInputElement | HTMLTextAreaElement;
     const isTextarea = control instanceof HTMLTextAreaElement;
-    const type = isTextarea ? undefined : inputTypeOf(control as HTMLInputElement);
+    const nativeType = isTextarea ? undefined : inputTypeOf(control as HTMLInputElement);
+    const type =
+      nativeType === "hidden" && isHiddenDateStore(control as HTMLInputElement)
+        ? "date"
+        : nativeType;
     const labelText = labelOf(control);
     const common = ctx.commonParts(control);
 

@@ -81,7 +81,8 @@ export type FieldKind =
   | "aria-radio"
   | "aria-switch"
   | "aria-combobox"
-  | "contenteditable";
+  | "contenteditable"
+  | "date";
 
 export interface FieldDescriptor {
   syntheticId: string;
@@ -128,6 +129,8 @@ export interface FieldDescriptor {
   checkboxGroupKey?: string;
   /** Hard cap on selections, only set when the DOM actually declares one. */
   maxSelections?: number;
+  /** Consecutive date widgets in one group: first is start, later is end. */
+  dateWindow?: "start" | "end";
   /** Set when the page is currently reporting this field as invalid. */
   ariaInvalid?: boolean;
   /** Validation text the page surfaced for this field. */

@@ -3,7 +3,8 @@ import { isFillableField } from "../shared/fillable";
 import { FieldIdAllocator, type FieldIdentityParts } from "./fieldId";
 import { WIDGET_SELECTOR, adapterFor, adapterForInstance } from "./widgets";
 import type { CommonDescriptorParts, DescribeContext, WidgetInstance } from "./widgets/types";
-import { associatedLabelText, cleanText, resolveAriaLabel, textFromIds } from "./widgets/dom";
+import { associatedLabelText, cleanText, nearbyLabelText, resolveAriaLabel, textFromIds } from "./widgets/dom";
+import { controlLooksLikeDateStore, isNativeDateInputType, looksLikeDateField } from "../shared/dateField";
 
 export interface ScanResult {
   fields: FieldDescriptor[];
@@ -17,6 +18,23 @@ const GROUP_CONTAINER_SELECTOR =
 const REQUIRED_LABEL_PATTERN =
   /(\*|obligatoire|requis|required|pflichtfeld|verplicht|必須|필수|obligatorio|必填)/i;
 
+function isHiddenDateStore(el: HTMLElement): boolean {
+  if (!(el instanceof HTMLInputElement) || el.type.toLowerCase() !== "hidden") return false;
+  return controlLooksLikeDateStore({
+    type: el.type,
+    name: el.name,
+    id: el.id,
+    placeholder: el.placeholder,
+    value: el.value,
+    className: el.className,
+    pattern: el.pattern,
+  });
+}
+
+function isTypedDateControl(el: HTMLElement): boolean {
+  return el instanceof HTMLInputElement && isNativeDateInputType(el.type);
+}
+
 // ---------------------------------------------------------------------------
 // Visibility
 // ---------------------------------------------------------------------------
@@ -24,21 +42,40 @@ const REQUIRED_LABEL_PATTERN =
 export function isVisible(el: HTMLElement): boolean {
   if (!(el instanceof HTMLElement)) return false;
 
+  const isFormControl =
+    el instanceof HTMLInputElement ||
+    el instanceof HTMLTextAreaElement ||
+    el instanceof HTMLSelectElement;
+  const hiddenDateStore = isHiddenDateStore(el);
+  const typedDateControl = isTypedDateControl(el);
+  const allowHiddenSelf = hiddenDateStore || typedDateControl;
+
   let cur: HTMLElement | null = el;
   while (cur) {
-    if (cur.hidden) return false;
-    if (cur.getAttribute("aria-hidden") === "true") return false;
+    const onControl = cur === el;
+    if (cur.hidden && !(allowHiddenSelf && onControl)) return false;
+    if (cur.getAttribute("aria-hidden") === "true" && !(allowHiddenSelf && onControl)) {
+      return false;
+    }
     const style = window.getComputedStyle(cur);
-    if (style.display === "none" || style.visibility === "hidden") return false;
-    if (parseFloat(style.opacity) === 0) return false;
-    if (style.contentVisibility === "hidden") return false;
+    if (style.display === "none" && !(allowHiddenSelf && onControl)) return false;
+
+    // Styled date pickers (Svelte, Flatpickr, etc.) hide the real <input> with
+    // opacity 0 / visibility hidden / sr-only. Treat the control itself as
+    // fillable; still skip a whole section that is actually hidden.
+    const visuallyHiddenControl = isFormControl && onControl;
+    if (!visuallyHiddenControl) {
+      if (style.visibility === "hidden") return false;
+      if (parseFloat(style.opacity) === 0) return false;
+      if (style.contentVisibility === "hidden") return false;
+    }
     cur = cur.parentElement;
   }
 
   // A zero-size input is still fillable: custom controls routinely hide the
   // native input behind a styled label.
   const rect = el.getBoundingClientRect();
-  if (rect.width === 0 && rect.height === 0 && el.tagName !== "INPUT") return false;
+  if (rect.width === 0 && rect.height === 0 && !isFormControl) return false;
   return true;
 }
 
@@ -214,7 +251,8 @@ function buildDescribeContext(): DescribeContext {
 
   const commonParts = (el: HTMLElement): CommonDescriptorParts => {
     const ariaLabel = resolveAriaLabel(el);
-    const labelText = associatedLabelText(el) || ariaLabel || undefined;
+    const labelText =
+      associatedLabelText(el) || ariaLabel || nearbyLabelText(el) || undefined;
     const container = el.closest(GROUP_CONTAINER_SELECTOR);
     const heading = nearestPrecedingHeading(el, headings);
     const validation = resolveValidationState(el);
@@ -275,9 +313,27 @@ export function scanFormFields(): ScanResult {
     fields.push(instance.descriptor);
   }
 
+  tagDateWindows(fields);
   attachCheckboxDependentLinks(fields, instances);
 
   return { fields, instances };
+}
+
+function tagDateWindows(fields: FieldDescriptor[]): void {
+  const dates = fields.filter((field) => looksLikeDateField(field));
+  const byGroup = new Map<string, FieldDescriptor[]>();
+  for (const field of dates) {
+    const key = field.groupKey ?? "__ungrouped__";
+    const list = byGroup.get(key);
+    if (list) list.push(field);
+    else byGroup.set(key, [field]);
+  }
+  for (const group of byGroup.values()) {
+    if (group.length < 2) continue;
+    group.forEach((field, index) => {
+      field.dateWindow = index === 0 ? "start" : "end";
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
