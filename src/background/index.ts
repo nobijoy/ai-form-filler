@@ -24,15 +24,19 @@ import type {
 } from "../shared/types";
 
 const MENU_ID = "aff_fill_now";
+const WELCOME_URL = "https://nobijoy.github.io/ai-form-filler/index.html";
 
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
   void clearEphemeralBrowserSessionKey();
   void setupContextMenu();
   void enableSidePanelOnActionClick();
+  if (details.reason === "install") {
+    void chrome.tabs.create({ url: WELCOME_URL });
+  }
 });
 
 chrome.runtime.onStartup.addListener(() => {
