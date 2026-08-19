@@ -55,7 +55,7 @@ const FALLBACKS: Record<string, string> = {
   labelExcludeSensitive: "Skip password and payment fields",
   hintExcludeSensitive:
     "When on, password and card fields are never filled and never sent to the AI.",
-  btnSave: "Save settings",
+  hintSettingsAutosave: "Changes save automatically. API keys still need Save key.",
   statusIdle: "Ready.",
   statusNoTab: "No active tab.",
   keyHint:
@@ -233,7 +233,7 @@ function applyI18n(): void {
     ["fillEmptyOnlyWarn", "warnFillEmptyOnly"],
     ["lblExcludeSensitive", "labelExcludeSensitive"],
     ["hintExcludeSensitive", "hintExcludeSensitive"],
-    ["btnSave", "btnSave"],
+    ["hintSettingsAutosave", "hintSettingsAutosave"],
     ["keyHint", "keyHint"],
   ];
 
@@ -405,7 +405,7 @@ function updateVaultUi(): void {
   if (vaultUnlocked) {
     status.textContent = enabled
       ? "Vault unlocked. New and existing keys will be encrypted."
-      : "Vault unlocked. Save settings to decrypt stored keys.";
+      : "Vault unlocked. Turn encryption off to decrypt stored keys.";
   } else if (enabled && !encryptedExists) {
     status.textContent =
       "Enter a passphrase (min 8 characters), confirm it, then unlock before saving encrypted keys.";
@@ -443,7 +443,20 @@ interface SettingsResponse {
   vaultUnlocked?: boolean;
 }
 
+let settingsHydrating = false;
+let persistTimer = 0;
+let persistGeneration = 0;
+
 async function load(resetStatus = true): Promise<void> {
+  settingsHydrating = true;
+  try {
+    await hydrateSettings(resetStatus);
+  } finally {
+    settingsHydrating = false;
+  }
+}
+
+async function hydrateSettings(resetStatus: boolean): Promise<void> {
   const response = await sendMessage<SettingsResponse>({ type: "GET_SETTINGS" });
   const settings = { ...DEFAULT_SETTINGS, ...response.settings };
 
@@ -503,35 +516,57 @@ function collectSettings(): Partial<ExtensionSettings> {
   };
 }
 
-async function onSave(): Promise<void> {
-  const button = el<HTMLButtonElement>("btnSave");
-  button.disabled = true;
-  button.textContent = "Saving…";
+function schedulePersist(delayMs = 0): void {
+  if (settingsHydrating) return;
+  window.clearTimeout(persistTimer);
+  persistTimer = window.setTimeout(() => {
+    void flushSettings();
+  }, delayMs);
+}
+
+async function flushSettings(): Promise<boolean> {
+  if (settingsHydrating) return true;
+  window.clearTimeout(persistTimer);
+  persistTimer = 0;
+  const generation = ++persistGeneration;
 
   try {
     const result = await sendMessage<{ ok: boolean; error?: string }>({
       type: "SAVE_SETTINGS",
       settings: collectSettings(),
     });
-    if (!result.ok) {
-      const message = result.error ?? t("errGeneric");
-      if (/vault|passphrase|encrypt/i.test(message)) {
-        setVaultStatus(message, "err");
-        el<HTMLDetailsElement>("connectionCard").open = true;
-      } else {
-        setStatus(message, "err");
-      }
-      return;
-    }
+    if (generation !== persistGeneration) return true;
+    if (result.ok) return true;
 
-    await load(false);
-    setStatus("Settings saved.", "ok");
+    const message = result.error ?? t("errGeneric");
+    if (/vault|passphrase|encrypt/i.test(message)) {
+      setVaultStatus(message, "err");
+      el<HTMLDetailsElement>("connectionCard").open = true;
+    } else {
+      setStatus(message, "err");
+    }
+    return false;
   } catch (error) {
+    if (generation !== persistGeneration) return true;
     setStatus(error instanceof Error ? error.message : t("errGeneric"), "err");
-  } finally {
-    button.disabled = false;
-    button.textContent = t("btnSave");
+    return false;
   }
+}
+
+async function persistVaultPolicy(): Promise<boolean> {
+  const ok = await flushSettings();
+  if (!ok) return false;
+  try {
+    const response = await sendMessage<SettingsResponse>({ type: "GET_SETTINGS" });
+    keyPresence = response.hasKeys ?? {};
+    encryptedKeys = response.encryptedKeys ?? {};
+    vaultUnlocked = response.vaultUnlocked === true;
+    updateVaultUi();
+    updateKeyUi(currentProvider());
+  } catch {
+    // UI already reflects the intended toggles; flags can refresh on next load.
+  }
+  return true;
 }
 
 async function onSaveKey(): Promise<void> {
@@ -596,9 +631,9 @@ interface FillResponse {
 async function onFill(): Promise<void> {
   const button = el<HTMLButtonElement>("btnFill");
 
-  // The custom request must be persisted before the run so the worker sees it.
+  // Flush a pending autosave so the worker sees the latest custom request.
   try {
-    await sendMessage({ type: "SAVE_SETTINGS", settings: collectSettings() });
+    await flushSettings();
   } catch {
     // Non-fatal: fall through and run with whatever is stored.
   }
@@ -712,7 +747,6 @@ async function ensureContentScript(tabId: number): Promise<void> {
 applyI18n();
 void load();
 
-el("btnSave").addEventListener("click", () => void onSave());
 el("btnSaveKey").addEventListener("click", () => void onSaveKey());
 el("btnFill").addEventListener("click", () => void onFill());
 el("btnClearLog").addEventListener("click", () => el("log").replaceChildren());
@@ -761,13 +795,53 @@ select("provider").addEventListener("change", () => {
     updateProviderBadge();
     await loadModels(provider, PROVIDERS[provider].defaultModel);
     updateProviderBadge();
+    schedulePersist();
   })();
 });
 
-select("model").addEventListener("change", updateProviderBadge);
-select("fillLanguage").addEventListener("change", updateLanguageUi);
-input("encryptKeys").addEventListener("change", updateVaultUi);
-input("fillEmptyOnly").addEventListener("change", updateFillEmptyWarning);
+select("model").addEventListener("change", () => {
+  updateProviderBadge();
+  schedulePersist();
+});
+select("fillMode").addEventListener("change", () => schedulePersist());
+select("fillLanguage").addEventListener("change", () => {
+  updateLanguageUi();
+  schedulePersist();
+});
+input("encryptKeys").addEventListener("change", () => {
+  updateVaultUi();
+  // Enabling/disabling encryption needs an unlocked vault. Keep the checkbox
+  // as intent and persist after Unlock when the vault is still locked.
+  if (vaultUnlocked) void persistVaultPolicy();
+});
+input("rememberKey").addEventListener("change", () => {
+  if (vaultUnlocked || !hasEncryptedKeys()) void persistVaultPolicy();
+});
+input("fillEmptyOnly").addEventListener("change", () => {
+  updateFillEmptyWarning();
+  schedulePersist();
+});
+input("autoNextEnabled").addEventListener("change", () => schedulePersist());
+input("excludeSensitive").addEventListener("change", () => schedulePersist());
+
+const DEBOUNCED_SETTING_IDS = [
+  "customRequest",
+  "fillLocaleOverride",
+  "autoNextMaxSteps",
+  "maxRounds",
+  "settleMs",
+] as const;
+
+for (const id of DEBOUNCED_SETTING_IDS) {
+  const node = el(id);
+  node.addEventListener("input", () => schedulePersist(400));
+  node.addEventListener("change", () => schedulePersist());
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") void flushSettings();
+});
+window.addEventListener("pagehide", () => void flushSettings());
 input("apiKey").addEventListener("input", () => {
   updateKeyControls();
   if (!input("apiKey").value.trim()) {
@@ -857,7 +931,8 @@ el("btnUnlock").addEventListener("click", () => {
     updateVaultUi();
     updateKeyUi(currentProvider());
     await loadModels(currentProvider(), select("model").value);
-    setVaultStatus("Vault unlocked for this browser session.", "ok");
+    const saved = await persistVaultPolicy();
+    if (saved) setVaultStatus("Vault unlocked for this browser session.", "ok");
   })();
 });
 

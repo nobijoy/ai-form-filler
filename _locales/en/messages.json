@@ -176,9 +176,9 @@
     "description": "Placeholder for passphrase confirmation"
   },
 
-  "btnSave": {
-    "message": "Save settings",
-    "description": "Persists extension settings"
+  "hintSettingsAutosave": {
+    "message": "Changes save automatically. API keys still need Save key.",
+    "description": "Explains that panel settings persist without a save button"
   },
   "btnClearKey": {
     "message": "Remove key",
