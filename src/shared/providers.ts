@@ -36,10 +36,79 @@ export interface ProviderDefinition {
   fallbackModels: ModelOption[];
 }
 
+function contextLabel(contextLength: number): string {
+  return contextLength >= 1000 ? `${Math.round(contextLength / 1000)}k context` : "unknown context";
+}
+
 function model(id: string, name: string, contextLength: number): ModelOption {
-  const context =
-    contextLength >= 1000 ? `${Math.round(contextLength / 1000)}k context` : "unknown context";
-  return { id, name, contextLength, label: `${name} - ${context}` };
+  return { id, name, contextLength, label: `${name} - ${contextLabel(contextLength)}` };
+}
+
+const GEMINI_CONTEXT_LENGTH = 1_048_576;
+
+/**
+ * Google's /models catalog includes embeddings, image, TTS, Pro, and dated
+ * snapshots. Only these Flash variants are useful for structured form fill.
+ * Default model first so the sidebar preselects it.
+ */
+export const GOOGLE_USABLE_MODELS: ModelOption[] = [
+  model("gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash Lite Preview", GEMINI_CONTEXT_LENGTH),
+  model("gemini-3.6-flash", "Gemini 3.6 Flash", GEMINI_CONTEXT_LENGTH),
+  model("gemini-3.5-flash", "Gemini 3.5 Flash", GEMINI_CONTEXT_LENGTH),
+  model("gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite", GEMINI_CONTEXT_LENGTH),
+  model("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite", GEMINI_CONTEXT_LENGTH),
+];
+
+const GOOGLE_USABLE_BY_ID_LENGTH = [...GOOGLE_USABLE_MODELS].sort(
+  (a, b) => b.id.length - a.id.length,
+);
+
+/** Stable / -latest ids, plus dated 3.1 Flash Lite Preview snapshots. */
+const GOOGLE_USABLE_ID_PATTERN =
+  /^gemini-3\.(?:6-flash|5-flash(?:-lite)?|1-flash-lite(?:-preview(?:-\d{2}-\d{2})?)?)(?:-latest)?$/i;
+
+function normalizeGoogleModelId(id: string): string {
+  return id.replace(/^models\//i, "").trim().toLowerCase();
+}
+
+function canonicalGoogleModel(id: string): ModelOption | undefined {
+  const normalized = normalizeGoogleModelId(id);
+  if (!GOOGLE_USABLE_ID_PATTERN.test(normalized)) return undefined;
+  return GOOGLE_USABLE_BY_ID_LENGTH.find(
+    (entry) =>
+      normalized === entry.id ||
+      normalized === `${entry.id}-latest` ||
+      normalized.startsWith(`${entry.id}-`),
+  );
+}
+
+/**
+ * Keep Google models the extension can actually use, with curated names and
+ * known context windows (the live catalog omits those).
+ */
+export function selectUsableGoogleModels(options: ModelOption[]): ModelOption[] {
+  const byCanonical = new Map<string, ModelOption>();
+
+  for (const option of options) {
+    const curated = canonicalGoogleModel(option.id);
+    if (!curated) continue;
+
+    const contextLength = option.contextLength > 0 ? option.contextLength : curated.contextLength;
+    const decorated: ModelOption = {
+      id: option.id,
+      name: curated.name,
+      contextLength,
+      label: `${curated.name} - ${contextLabel(contextLength)}`,
+    };
+
+    const existing = byCanonical.get(curated.id);
+    const isCanonicalId = normalizeGoogleModelId(option.id) === curated.id;
+    if (!existing || isCanonicalId) byCanonical.set(curated.id, decorated);
+  }
+
+  return GOOGLE_USABLE_MODELS.map((entry) => byCanonical.get(entry.id)).filter(
+    (option): option is ModelOption => option !== undefined,
+  );
 }
 
 export const PROVIDERS: Record<LlmProviderId, ProviderDefinition> = {
@@ -80,14 +149,9 @@ export const PROVIDERS: Record<LlmProviderId, ProviderDefinition> = {
     keyLabel: "Gemini API key",
     docsUrl: "https://aistudio.google.com/apikey",
     defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-    defaultModel: "gemini-3.1-flash",
+    defaultModel: "gemini-3.1-flash-lite-preview",
     originPattern: "https://generativelanguage.googleapis.com/*",
-    fallbackModels: [
-      model("gemini-3.1-flash", "Gemini 3.1 Flash", 1048576),
-      model("gemini-2.5-flash", "Gemini 2.5 Flash", 1048576),
-      model("gemini-2.0-flash", "Gemini 2.0 Flash", 1048576),
-      model("gemini-2.5-pro", "Gemini 2.5 Pro", 1048576),
-    ],
+    fallbackModels: GOOGLE_USABLE_MODELS,
   },
   xai: {
     id: "xai",

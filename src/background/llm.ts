@@ -8,6 +8,7 @@ import {
   readProviderError,
   readReply,
   resolveProviderBaseUrl,
+  selectUsableGoogleModels,
   type ChatRequest,
   type ProviderDefinition,
 } from "../shared/providers";
@@ -103,10 +104,14 @@ export async function getProviderModels(
     const records = payload.data ?? payload.models;
     if (!Array.isArray(records)) return fallback;
 
-    const options = records
+    let options = records
       .map(toModelOption)
-      .filter((option): option is ModelOption => option !== null)
-      .sort((a, b) => b.contextLength - a.contextLength || a.id.localeCompare(b.id));
+      .filter((option): option is ModelOption => option !== null);
+
+    options =
+      providerId === "google"
+        ? selectUsableGoogleModels(options)
+        : options.sort((a, b) => b.contextLength - a.contextLength || a.id.localeCompare(b.id));
 
     if (options.length === 0) return fallback;
 
